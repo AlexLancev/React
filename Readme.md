@@ -1800,6 +1800,1721 @@ function Greeting({ name }) {
 * Нет атрибута `component` — используем `<Component prop={...} />`.
 * Для динамических значений удобно вычислять их **до передачи в element**.
 
+### Как реализовать форму с `action`, отправкой данных и редиректом
+
+**Шпаргалка:**
+
+> В React Router 6.4+ используют **data routers**: форма отправляется через `<Form>`, логика — в `action`, а редирект выполняется через `redirect()` после успешного ответа сервера.
+
+#### Подробности:
+
+* **Форма в компоненте (без `onSubmit`):**
+
+```javascript
+import { Form } from 'react-router-dom';
+
+function NewPost() {
+  return (
+    <Form method="post">
+      <input name="title" placeholder="Заголовок" />
+      <textarea name="content" />
+      <button type="submit">Создать</button>
+    </Form>
+  );
+}
+```
+
+* **Action для обработки формы и запроса на сервер:**
+
+```javascript
+import { redirect } from 'react-router-dom';
+
+export async function createPostAction({ request }) {
+  const formData = await request.formData();
+
+  const post = {
+    title: formData.get('title'),
+    content: formData.get('content'),
+  };
+
+  const response = await fetch('/api/posts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(post),
+  });
+
+  if (!response.ok) {
+    throw new Error('Ошибка создания поста');
+  }
+
+  return redirect('/posts');
+}
+```
+
+* **Привязка action к маршруту:**
+
+```javascript
+{
+  path: '/posts/new',
+  element: <NewPost />,
+  action: createPostAction,
+}
+```
+
+* **Что происходит:**
+
+  * `<Form>` автоматически вызывает `action`
+  * React Router сам обрабатывает submit
+  * После `redirect()` происходит **клиентский редирект без перезагрузки**
+
+#### Практический вывод:
+
+* `<Form method="post">` → отправка без `onSubmit`.
+* Вся бизнес-логика и API — в `action`.
+* `redirect()` — стандартный способ навигации после успеха.
+* Такой подход = **чистые компоненты + серверная логика в маршрутах** (как в Remix).
+
+### Как использовать `loader` и `useLoaderData` для предварительной загрузки данных
+
+**Шпаргалка:**
+
+> В React Router 6.4+ данные загружаются **до рендера страницы** через `loader`, а в компоненте получаются с помощью `useLoaderData()`.
+
+#### Подробности:
+
+* **Loader — функция загрузки данных маршрута:**
+
+```javascript
+export async function postsLoader() {
+  const response = await fetch('/api/posts');
+
+  if (!response.ok) {
+    throw new Error('Ошибка загрузки');
+  }
+
+  return response.json();
+}
+```
+
+* **Привязка loader к маршруту:**
+
+```javascript
+{
+  path: '/posts',
+  element: <Posts />,
+  loader: postsLoader,
+}
+```
+
+* **Получение данных в компоненте:**
+
+```javascript
+import { useLoaderData } from 'react-router-dom';
+
+function Posts() {
+  const posts = useLoaderData();
+  return posts.map(post => <div key={post.id}>{post.title}</div>);
+}
+```
+
+* **Как это работает:**
+
+  * `loader` выполняется **до рендера маршрута**
+  * Пока данные загружаются, роутер может показать fallback
+  * Компонент рендерится **уже с готовыми данными**
+
+* **Ошибки и loading-состояния:**
+
+  * Ошибки из loader ловятся через `errorElement`
+  * Для загрузки используют `useNavigation()` или `Suspense` (в зависимости от конфигурации)
+
+#### Практический вывод:
+
+* `loader` = загрузка данных **на уровне маршрута**.
+* `useLoaderData()` = доступ к уже загруженным данным.
+* Данные приходят **до рендера**, без `useEffect`.
+* Подходит для страниц с обязательными данными (SSR / SEO / UX).
+
+### Какие проблемы возникают при использовании `useLoaderData` вместе с Redux / Context
+
+**Шпаргалка:**
+
+> Основные проблемы — **дублирование источников истины**, рассинхронизация данных и лишние ререндеры из-за конкуренции loader’ов и глобального состояния.
+
+#### Подробности:
+
+* **Два источника истины (source of truth):**
+
+  * Данные приходят из `loader`
+  * Те же данные кладутся в Redux / Context
+    → легко получить **несовпадения**, когда обновилось одно, но не другое.
+
+* **Рассинхронизация при навигации:**
+
+  * `loader` автоматически перезапускается при переходах
+  * Redux/Context может хранить **устаревшее состояние**
+  * В результате UI показывает разные данные в разных местах.
+
+* **Лишние ререндеры:**
+
+  * `loader` → обновление маршрута
+  * Redux/Context → обновление стора
+    → двойные обновления одного и того же экрана.
+
+* **Неочевидный жизненный цикл:**
+
+  * `loader` живет на уровне маршрута
+  * Redux — на уровне приложения
+    → сложнее понимать **кто и когда обновляет данные**.
+
+* **Антипаттерн: «перекладывать loader-данные в store»:**
+
+  * Часто делают `dispatch(setData(useLoaderData()))`
+  * Это ломает идею data routers и добавляет лишнюю сложность.
+
+#### Практический вывод:
+
+* `loader` — для **route-данных страницы** (что нужно до рендера).
+* Redux / Context — для **глобального состояния** (auth, theme, ui).
+* Не дублируйте одни и те же данные в loader и store.
+* Если данные нужны глобально — загружайте их **в одном месте**, не в loader страницы.
+
+### Как обработать ошибки загрузки данных на уровне маршрута с помощью `errorElement`
+
+**Шпаргалка:**
+
+> В React Router 6.4+ ошибки из `loader` и `action` обрабатываются через `errorElement`, который рендерится **вместо страницы**, если загрузка упала.
+
+#### Подробности:
+
+* **Ошибка в `loader`:**
+
+```javascript
+export async function postsLoader() {
+  const response = await fetch('/api/posts');
+
+  if (!response.ok) {
+    throw new Response('Ошибка загрузки', { status: 500 });
+  }
+
+  return response.json();
+}
+```
+
+* **Подключение `errorElement` к маршруту:**
+
+```javascript
+{
+  path: '/posts',
+  element: <Posts />,
+  loader: postsLoader,
+  errorElement: <PostsError />,
+}
+```
+
+* **Компонент ошибки:**
+
+```javascript
+import { useRouteError } from 'react-router-dom';
+
+function PostsError() {
+  const error = useRouteError();
+
+  return (
+    <>
+      <h2>Ошибка</h2>
+      <p>{error.statusText || error.message}</p>
+    </>
+  );
+}
+```
+
+* **Как это работает:**
+
+  * Любой `throw` или отклонённый Promise в `loader/action`
+  * React Router **останавливает рендер маршрута**
+  * Вместо `element` рендерится `errorElement`
+  * Ошибка пробрасывается **в ближайший родительский errorElement**
+
+#### Практический вывод:
+
+* Ошибки кидаем прямо из `loader` / `action`.
+* `errorElement` — обработчик ошибок **на уровне маршрута**.
+* `useRouteError()` — доступ к объекту ошибки.
+* Удобно для централизованной и предсказуемой обработки ошибок.
+
+### Как реализовать индикатор загрузки маршрутов с помощью `useNavigation`
+
+**Шпаргалка:**
+
+> `useNavigation` позволяет отследить состояние навигации (`idle`, `loading`, `submitting`) и показать **loader на уровне маршрута или layout**.
+
+#### Подробности:
+
+* **Получение состояния навигации:**
+
+```javascript
+import { useNavigation } from 'react-router-dom';
+
+function Layout() {
+  const navigation = useNavigation();
+  const isLoading = navigation.state === 'loading';
+
+  return (
+    <>
+      {isLoading && <Spinner />}
+      <Outlet />
+    </>
+  );
+}
+```
+
+* **Состояния `useNavigation`:**
+
+  * `idle` — навигации нет
+  * `loading` — выполняется `loader` нового маршрута
+  * `submitting` — выполняется `action` (например, отправка формы)
+
+* **Индикатор для конкретного маршрута:**
+
+```javascript
+const isPostsLoading =
+  navigation.state === 'loading' &&
+  navigation.location?.pathname.startsWith('/posts');
+```
+
+* **Преимущества:**
+
+  * Не нужен локальный `isLoading` в компонентах
+  * Loader управляется **роутером**, а не `useEffect`
+  * Хорошо работает с `loader` и `action`
+
+#### Практический вывод:
+
+* `useNavigation` — стандартный способ показывать loading для роутов.
+* Используйте в **layout-компонентах** для глобального индикатора.
+* Можно фильтровать по `pathname` для точечного UX.
+
+### Как оптимизировать загрузку страниц с `React.lazy`, `Suspense` и React Router
+
+**Шпаргалка:**
+
+> Используем `React.lazy` для **code splitting страниц**, а `Suspense` — для показа fallback во время их загрузки; в роутере оборачиваем lazy-страницы в `Suspense`.
+
+#### Подробности:
+
+* **Ленивая загрузка страницы:**
+
+```javascript
+import { lazy, Suspense } from 'react';
+
+const AboutPage = lazy(() => import('./pages/About'));
+```
+
+* **Использование с React Router:**
+
+```javascript
+<Route
+  path="/about"
+  element={
+    <Suspense fallback={<Spinner />}>
+      <AboutPage />
+    </Suspense>
+  }
+/>
+```
+
+* **Через layout для всех страниц сразу (рекомендуется):**
+
+```javascript
+function AppLayout() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <Outlet />
+    </Suspense>
+  );
+}
+```
+
+```javascript
+<Route element={<AppLayout />}>
+  <Route path="/about" element={<AboutPage />} />
+  <Route path="/posts" element={<PostsPage />} />
+</Route>
+```
+
+* **Что дает оптимизация:**
+
+  * JS грузится **только при переходе на страницу**
+  * Уменьшается initial bundle
+  * Быстрее First Contentful Paint
+
+* **Важные нюансы:**
+
+  * `lazy` — только для **default export**
+  * `Suspense` работает для **code splitting**, не для data loading (`loader`)
+  * Можно комбинировать с `useNavigation` для UX
+
+#### Практический вывод:
+
+* `React.lazy` — делим код по страницам.
+* `Suspense` — UI во время загрузки чанка.
+* Лучшее место `Suspense` — **layout-маршрут**.
+* Отлично сочетается с React Router для крупных приложений.
+
+### Как создать защищённый маршрут (`ProtectedRoute`)
+
+**Шпаргалка:**
+
+> Защищённый маршрут — это обертка, которая **проверяет авторизацию** и либо рендерит страницу, либо делает редирект на `/login` через `<Navigate />`.
+
+#### Подробности:
+
+* **Базовая реализация через компонент-обертку:**
+
+```javascript
+import { Navigate, Outlet } from 'react-router-dom';
+
+function ProtectedRoute({ isAuth }) {
+  if (!isAuth) {
+    return <Navigate to="/login" replace />;
+  }
+  return <Outlet />;
+}
+```
+
+* **Использование в роутере:**
+
+```javascript
+<Route element={<ProtectedRoute isAuth={isAuthenticated} />}>
+  <Route path="/profile" element={<Profile />} />
+  <Route path="/settings" element={<Settings />} />
+</Route>
+```
+
+* **Сохранение страницы, куда хотел попасть пользователь:**
+
+```javascript
+import { useLocation } from 'react-router-dom';
+
+function ProtectedRoute({ isAuth }) {
+  const location = useLocation();
+
+  if (!isAuth) {
+    return (
+      <Navigate
+        to="/login"
+        state={{ from: location }}
+        replace
+      />
+    );
+  }
+
+  return <Outlet />;
+}
+```
+
+* После логина можно вернуть пользователя обратно:
+
+```javascript
+const from = location.state?.from?.pathname || '/';
+navigate(from, { replace: true });
+```
+
+#### Практический вывод:
+
+* `ProtectedRoute` = проверка auth + `<Navigate />`.
+* Используйте `<Outlet />` для вложенных защищённых маршрутов.
+* `replace` — чтобы нельзя было вернуться назад.
+* Передача `location` улучшает UX после логина.
+
+### Как передавать и считывать query-параметры с помощью `useSearchParams`
+
+**Шпаргалка:**
+
+> `useSearchParams` позволяет читать и менять **query-параметры URL**, синхронизируя состояние интерфейса с адресной строкой.
+
+#### Подробности:
+
+* **Чтение параметров:**
+
+```javascript
+import { useSearchParams } from 'react-router-dom';
+
+function Posts() {
+  const [searchParams] = useSearchParams();
+  const page = searchParams.get('page'); // ?page=2
+  const sort = searchParams.get('sort'); // ?sort=date
+}
+```
+
+* **Установка / обновление параметров:**
+
+```javascript
+const [searchParams, setSearchParams] = useSearchParams();
+
+setSearchParams({ page: 2, sort: 'date' });
+```
+
+* **Частичное обновление (важный нюанс):**
+
+```javascript
+setSearchParams(prev => {
+  prev.set('page', 3);
+  return prev;
+});
+```
+
+* **Особенности:**
+
+  * Все значения — **строки**.
+  * `setSearchParams` **перезаписывает** параметры, если не использовать callback.
+  * Работает как источник состояния → обновление URL = обновление UI.
+
+#### Практический вывод:
+
+* `useSearchParams` — стандартный способ работы с query-строкой.
+* Читаем через `.get()`, обновляем через `setSearchParams`.
+* Используйте callback-форму, если нужно сохранить остальные параметры.
+
+### Подводные камни вложенных маршрутов с `layout` и `Outlet`
+
+**Шпаргалка (коротко):**
+
+> Основные проблемы — лишние ререндеры, ошибки путей, неправильное размещение `Outlet` и путаница с layout-состоянием.
+
+---
+
+ **1. Забыли `Outlet`**
+
+**Проблема:** дочерние маршруты не рендерятся вообще.
+
+```jsx
+function Layout() {
+  return (
+    <>
+      <Header />
+      {/* забыли <Outlet /> */}
+    </>
+  );
+}
+```
+
+**Правильно:**
+
+```jsx
+import { Outlet } from 'react-router-dom';
+
+function Layout() {
+  return (
+    <>
+      <Header />
+      <Outlet />
+    </>
+  );
+}
+```
+
+---
+
+**2. Абсолютные пути у вложенных маршрутов**
+
+**Проблема:** вложенный маршрут перестаёт быть вложенным.
+
+```jsx
+<Route path="dashboard" element={<Layout />}>
+  <Route path="/settings" element={<Settings />} /> ❌
+</Route>
+```
+
+**Нужно:**
+
+```jsx
+<Route path="dashboard" element={<Layout />}>
+  <Route path="settings" element={<Settings />} /> ✅
+</Route>
+```
+
+---
+
+**3. Layout слишком «толстый»**
+
+**Проблема:** состояние в layout → ререндер всех дочерних страниц.
+
+```jsx
+function Layout() {
+  const [theme, setTheme] = useState('dark'); // влияет на всё
+}
+```
+
+**Решение:**
+
+* выносить состояние выше / ниже
+* дробить layout на несколько уровней
+
+---
+
+**4. Отсутствие `index`-маршрута**
+
+**Проблема:** при переходе на родительский путь пустая страница.
+
+```jsx
+<Route path="profile" element={<Layout />}>
+  <Route path="settings" element={<Settings />} />
+</Route>
+```
+
+**Нужно:**
+
+```jsx
+<Route path="profile" element={<Layout />}>
+  <Route index element={<ProfileMain />} />
+  <Route path="settings" element={<Settings />} />
+</Route>
+```
+
+---
+
+**5. Повторная загрузка данных в layout**
+
+**Проблема:** `loader` layout-а перезапускается при каждом переходе между дочерними маршрутами.
+
+**Нюанс:**
+
+* loader layout-а → общий
+* loader страницы → локальный
+
+Используй layout-loader **только для реально общих данных**.
+
+---
+
+**6. Конфликт с `Suspense`**
+
+**Проблема:** весь layout уходит в fallback при ленивой загрузке страницы.
+
+```jsx
+<Suspense fallback={<Spinner />}>
+  <Layout />
+</Suspense>
+```
+
+**Лучше:**
+
+```jsx
+<Layout>
+  <Suspense fallback={<Spinner />}>
+    <Outlet />
+  </Suspense>
+</Layout>
+```
+
+---
+
+**7. Потеря контекста при смене layout**
+
+**Проблема:** разные layout → разные Provider-ы → state сбрасывается.
+
+**Правило:**
+
+* контексты, нужные нескольким layout, выносить **выше роутера**
+
+---
+
+**Итоговая выжимка**  
+
+* Всегда проверяй `Outlet`, `index` и относительные пути.
+* Не храни тяжёлое состояние в layout — оно ререндерит всех детей.
+* Loader и Suspense в layout использовать только для **общих** вещей.
+
+### Как реализовать модальное окно через маршруты (modal routes)
+
+**Шпаргалка:**
+
+> Модалка — это **отдельный маршрут**, который рендерится поверх текущей страницы.
+> Закрытие модалки = возврат к предыдущему `location`.
+
+---
+
+ **Базовая идея (ключевая для понимания)**
+
+1. Сохраняем **предыдущий location** в `state`
+2. При открытии модалки меняется URL
+3. При закрытии — `navigate(-1)` или возврат к сохранённому location
+
+---
+
+**1. Открытие модалки с сохранением предыдущего URL**
+
+```jsx
+import { Link, useLocation } from 'react-router-dom';
+
+function Gallery() {
+  const location = useLocation();
+
+  return (
+    <Link
+      to="/photos/42"
+      state={{ background: location }}
+    >
+      Открыть фото
+    </Link>
+  );
+}
+```
+
+---
+
+**2. Настройка роутов с `background location`**
+
+```jsx
+import { Routes, Route, useLocation } from 'react-router-dom';
+
+function AppRoutes() {
+  const location = useLocation();
+  const background = location.state?.background;
+
+  return (
+    <>
+      {/* основной контент */}
+      <Routes location={background || location}>
+        <Route path="/" element={<Gallery />} />
+        <Route path="/photos/:id" element={<PhotoPage />} />
+      </Routes>
+
+      {/* модалка поверх */}
+      {background && (
+        <Routes>
+          <Route
+            path="/photos/:id"
+            element={<PhotoModal />}
+          />
+        </Routes>
+      )}
+    </>
+  );
+}
+```
+
+---
+
+**3. Закрытие модалки**
+
+```jsx
+import { useNavigate } from 'react-router-dom';
+
+function PhotoModal() {
+  const navigate = useNavigate();
+
+  return (
+    <Modal onClose={() => navigate(-1)}>
+      Контент модалки
+    </Modal>
+  );
+}
+```
+
+---
+
+**4. Важные нюансы и подводные камни**
+
+Прямой переход по URL
+
+Если пользователь открыл `/photos/42` напрямую:
+
+* `background` нет
+* страница откроется **как обычная**, не как модалка
+
+✔ это корректное поведение
+
+---
+
+**SEO и доступность**
+
+* URL существует → можно шарить ссылку
+* есть back/forward в браузере
+
+---
+
+Когда **не стоит** использовать modal routes
+
+* модалка — чисто UI (confirm, tooltip)
+* не имеет смысла как отдельная страница
+
+---
+
+**Итоговая выжимка для собеса**
+
+* Модалка = отдельный маршрут
+* Предыдущий экран сохраняется в `location.state`
+* Закрытие = `navigate(-1)`
+* При прямом заходе модалка рендерится как страница
+
+Это **каноничный паттерн React Router v6+**, часто спрашивают на Middle+.
+
+### Как реализовать предзагрузку данных (prefetching) для следующего маршрута
+
+**Шпаргалка:**
+
+> Prefetching — это **загрузка данных или компонентов следующего маршрута заранее**, чтобы при переходе страница рендерилась мгновенно.
+
+---
+
+**1. Ленивая загрузка компонента с `React.lazy`**
+
+```javascript
+import { lazy } from 'react';
+
+const AboutPage = lazy(() => import('./pages/About'));
+
+// Для prefetch можно просто «запустить» import заранее
+function preloadAbout() {
+  import('./pages/About');
+}
+```
+
+* Вызов `preloadAbout()` заранее загружает JS-бандл страницы
+* Когда пользователь перейдет, `React.lazy` уже не будет тянуть сеть
+
+---
+
+**2. Prefetch данных через `loader`**
+
+В React Router v6.4+ можно вызвать loader заранее:
+
+```javascript
+import { matchRoutes, createRoutesFromChildren, useNavigate } from 'react-router-dom';
+
+async function prefetchPosts() {
+  const matchedRoutes = matchRoutes(routes, '/posts');
+  if (matchedRoutes) {
+    const loaders = matchedRoutes
+      .map(match => match.route.loader)
+      .filter(Boolean);
+
+    await Promise.all(loaders.map(loader => loader({ request: new Request('/posts') })));
+  }
+}
+```
+
+* `matchRoutes` ищет маршрут по пути
+* Вызываем его `loader` заранее
+* Данные будут готовы к рендеру при навигации
+
+---
+
+**3. Prefetch при наведении на ссылку**
+
+```javascript
+<Link
+  to="/posts"
+  onMouseEnter={() => {
+    preloadPostsComponent();
+    prefetchPosts();
+  }}
+>
+  Посты
+</Link>
+```
+
+* Hover → JS + данные подгружаются заранее
+* UX быстрее, переход кажется мгновенным
+
+---
+
+**4. Важные нюансы**
+
+* **Не дублировать сетевые запросы:** loader вызывается дважды только если данных нет в кеше
+* Можно хранить результат prefetch в **кеше или контексте**
+* Lazy-компоненты и loader работают независимо → комбинируем для полной предзагрузки
+
+---
+
+**Итоговая выжимка**
+
+* Prefetch = **загрузка компонента + данных** заранее
+* Для компонентов: `React.lazy` + вызов `import()`
+* Для данных: вызов `loader()` заранее через `matchRoutes`
+* Можно триггерить по hover или видимости ссылки (IntersectionObserver)
+
+> Результат: пользователь получает почти мгновенный рендер при переходе на следующий маршрут.
+
+### Как избежать повторной загрузки данных при навигации между страницами с одинаковым loader
+
+**Шпаргалка:**
+
+> Используем **кэширование loader-данных** или хранение в глобальном/контексте, чтобы повторные переходы не запускали сетевой запрос.
+
+---
+
+**1. Использование `useLoaderData` с кэшем**
+
+```javascript
+const loaderCache = new Map();
+
+export async function postsLoader({ request }) {
+  const url = new URL(request.url);
+  const key = url.pathname + url.search;
+
+  if (loaderCache.has(key)) {
+    return loaderCache.get(key);
+  }
+
+  const response = await fetch('/api/posts');
+  const data = await response.json();
+
+  loaderCache.set(key, data);
+  return data;
+}
+```
+
+* Ключ может включать `pathname` и query-параметры
+* При повторной навигации данные возвращаются из кэша без fetch
+
+---
+
+**2. Хранение данных в глобальном состоянии**
+
+* Использовать **Redux / Zustand / Context** для уже загруженных данных
+
+```javascript
+function usePosts() {
+  const [posts, setPosts] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!loaded) {
+      fetch('/api/posts')
+        .then(res => res.json())
+        .then(data => {
+          setPosts(data);
+          setLoaded(true);
+        });
+    }
+  }, [loaded]);
+
+  return posts;
+}
+```
+
+* Loader может проверять, есть ли данные в store, и возвращать их, чтобы избежать повторного fetch
+
+---
+
+**3. Prefetch + кэш**
+
+* При наведении на ссылку можно **подгрузить данные и сохранить в кэше**
+* Когда пользователь перейдет, loader сразу возвращает cached result
+
+```javascript
+onMouseEnter={() => {
+  if (!loaderCache.has('/posts')) {
+    prefetchPosts();
+  }
+}}
+```
+
+---
+
+**4. Важные нюансы**
+
+* **Обновление stale data:** кэшированные данные могут устаревать → использовать TTL или обновлять через background fetch
+* **Разделение кэша:** учитывайте query-параметры и динамические id, чтобы не смешивать разные запросы
+* **Совмещение с Suspense / useLoaderData:** кэш может позволить loader вернуть данные синхронно → рендер без загрузки
+
+---
+
+**Итоговая выжимка**
+
+* Хранить результаты loader в **кэше или глобальном state**
+* Проверять кэш перед fetch
+* Prefetch + кэш = мгновенный рендер при навигации
+* Важна стратегия обновления stale данных для актуальности UI
+
+### Как интегрировать React Router с Redux Toolkit Query (RTK Query) или React Query для загрузки данных
+
+**Шпаргалка:**
+
+> Используем **data fetching библиотеки** вместо loader для гибкого управления запросами, кэширования и автоматического обновления. React Router продолжает управлять навигацией, а запросы выполняются в компонентах через hooks.
+
+---
+
+**1. Интеграция с RTK Query**
+
+Создаем API slice
+
+```javascript
+import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+
+export const postsApi = createApi({
+  reducerPath: 'postsApi',
+  baseQuery: fetchBaseQuery({ baseUrl: '/api' }),
+  endpoints: (builder) => ({
+    getPosts: builder.query({
+      query: () => '/posts',
+    }),
+  }),
+});
+
+export const { useGetPostsQuery } = postsApi;
+```
+
+Используем в компоненте страницы
+
+```javascript
+import { useGetPostsQuery } from './postsApi';
+
+function Posts() {
+  const { data: posts, error, isLoading } = useGetPostsQuery();
+
+  if (isLoading) return <p>Загрузка...</p>;
+  if (error) return <p>Ошибка загрузки</p>;
+
+  return posts.map(post => <div key={post.id}>{post.title}</div>);
+}
+```
+
+Настройка роутера
+
+```javascript
+<Route path="/posts" element={<Posts />} />
+```
+
+**Особенности:**
+
+* Router управляет маршрутом
+* RTK Query сам кэширует данные
+* Нет необходимости в loader для fetch
+
+---
+
+**2. Интеграция с React Query**
+
+Настройка QueryClient
+
+```javascript
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+
+const queryClient = new QueryClient();
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/posts" element={<Posts />} />
+        </Routes>
+      </BrowserRouter>
+    </QueryClientProvider>
+  );
+}
+```
+
+Используем `useQuery` в компоненте
+
+```javascript
+function fetchPosts() {
+  return fetch('/api/posts').then(res => res.json());
+}
+
+function Posts() {
+  const { data: posts, isLoading, error } = useQuery(['posts'], fetchPosts);
+
+  if (isLoading) return <p>Загрузка...</p>;
+  if (error) return <p>Ошибка загрузки</p>;
+
+  return posts.map(post => <div key={post.id}>{post.title}</div>);
+}
+```
+
+**Особенности:**
+
+* React Query кэширует данные
+* Поддержка **prefetch, staleTime, background refetch**
+* Loader React Router не обязателен
+
+---
+
+**3. Рекомендации и best practices**
+
+1. **Используйте React Router для навигации**, а fetching оставляйте в компонентах.
+2. Для **статичных страниц** с обязательными данными можно использовать loader, но для динамических UI лучше RTK Query / React Query.
+3. Prefetch:
+
+   * RTK Query: `initiate()` или `prefetch()`
+   * React Query: `queryClient.prefetchQuery(['posts'], fetchPosts)`
+4. Loading/error state обрабатывается **локально в компоненте**, что совместимо с Suspense и Skeleton UI.
+
+---
+
+**Итоговая выжимка**
+
+* Router → маршруты и навигация
+* RTK Query / React Query → fetch, кэш, управление состоянием загрузки
+* Loader чаще используется только для **SSR/SEO или data router сценариев**
+* Prefetch и кэш делают страницы мгновенно отзывчивыми при переходе
+
+---
+
+Если хочешь, я могу сделать **схему визуально**, как Router, loader, RTK Query и Suspense работают вместе, чтобы это было наглядно для собеса.
+
+Хочешь, чтобы я это сделал?
+
+### Как использовать `useFetcher` для частичного обновления страницы без полной перезагрузки маршрута
+
+**Шпаргалка:**
+
+> `useFetcher` из React Router 6.4+ позволяет **вызывать action** маршрута и обновлять UI без перехода на другой URL.
+
+---
+
+**1. Получение объекта fetcher**
+
+```javascript
+import { useFetcher } from 'react-router-dom';
+
+function LikeButton({ postId }) {
+  const fetcher = useFetcher();
+
+  return (
+    <fetcher.Form method="post" action={`/posts/${postId}/like`}>
+      <button type="submit">
+        {fetcher.formData?.liked ? '❤️' : '🤍'}
+      </button>
+    </fetcher.Form>
+  );
+}
+```
+
+---
+
+**2. Action для частичного обновления**
+
+```javascript
+export async function likePostAction({ params }) {
+  const response = await fetch(`/api/posts/${params.postId}/like`, {
+    method: 'POST',
+  });
+
+  const data = await response.json();
+  return data; // возвращаем JSON, доступный через fetcher.data
+}
+```
+
+---
+
+**3. Работа fetcher.data**
+
+```javascript
+function LikeButton({ postId }) {
+  const fetcher = useFetcher();
+
+  const liked = fetcher.data?.liked || false;
+
+  return (
+    <fetcher.Form method="post" action={`/posts/${postId}/like`}>
+      <button type="submit">{liked ? '❤️' : '🤍'}</button>
+    </fetcher.Form>
+  );
+}
+```
+
+* `fetcher.data` обновляется **только для этого fetcher**, не трогая весь маршрут
+* UI реагирует мгновенно на изменения
+
+---
+
+**4. Состояния fetcher**
+
+| Состояние                  | Когда используется            |
+| -------------------------- | ----------------------------- |
+| `fetcher.state === 'idle'` | нет активного запроса         |
+| `'submitting'`             | форма отправляется            |
+| `'loading'`                | ответ от action ещё не пришёл |
+
+Можно использовать для **спиннеров и блокировки кнопок**:
+
+```javascript
+<button disabled={fetcher.state !== 'idle'}>
+  {fetcher.state === 'submitting' ? 'Отправка...' : '❤️'}
+</button>
+```
+
+---
+
+**5. Важные нюансы**
+
+* `useFetcher` **не меняет URL**, подходит для кнопок, форм, лайков, фильтров
+* Если нужна навигация после действия — используем `fetcher.submit()` + `redirect()` внутри action
+* Несколько fetcher’ов на странице работают **независимо**, каждый имеет собственное `data`
+
+---
+
+**Итоговая выжимка** 
+
+* `useFetcher` → обновление части страницы без перехода
+* `fetcher.Form` или `fetcher.submit()` → вызов action
+* `fetcher.data` → результат запроса для UI
+* `fetcher.state` → управление loading/submitting
+
+> Подходит для лайков, форм, фильтров и любых локальных обновлений без полной перезагрузки маршрута.
+
+### Как обрабатывать ошибки на уровне вложенного маршрута, не влияя на родительский layout
+
+**Шпаргалка:**
+
+> Используем `errorElement` у **вложенного маршрута**, чтобы ошибки не прерывали рендер родительского layout.
+
+---
+
+#### 1. Базовая структура маршрутов
+
+```javascript
+<Routes>
+  <Route path="/dashboard" element={<DashboardLayout />}>
+    <Route 
+      path="stats" 
+      element={<StatsPage />} 
+      errorElement={<StatsError />} 
+    />
+    <Route 
+      path="settings" 
+      element={<SettingsPage />} 
+      errorElement={<SettingsError />} 
+    />
+  </Route>
+</Routes>
+```
+
+* `DashboardLayout` рендерится всегда
+* Если ошибка в `StatsPage` → отобразится `<StatsError />` вместо страницы
+* Родительский layout (`DashboardLayout`) **не перерисовывается**
+
+---
+
+#### 2. Вложенный loader с ошибкой
+
+```javascript
+export async function statsLoader() {
+  const res = await fetch('/api/stats');
+  if (!res.ok) throw new Response('Ошибка загрузки статистики', { status: 500 });
+  return res.json();
+}
+```
+
+* Ошибка в loader → `StatsError` рендерится автоматически
+* Другие дочерние маршруты (`settings`) не затрагиваются
+
+---
+
+#### 3. Ошибка внутри компонента
+
+```javascript
+function StatsPage() {
+  const data = useLoaderData();
+  
+  if (!data) throw new Error('Нет данных'); // поймает errorElement
+  return <div>{data.count}</div>;
+}
+```
+
+* Любой throw в компоненте дочернего маршрута → отработает `errorElement` этого маршрута
+
+---
+
+#### 4. Важные нюансы
+
+1. **Scope ошибки**
+
+   * `errorElement` работает **локально**, только для своего маршрута и loader/action
+   * Ошибка не «поднимается» к родителю, если только parent не ловит `useRouteError()`
+
+2. **Несколько уровней вложенности**
+
+   * Если у дочернего маршрута нет `errorElement` → ошибка прокидывается к ближайшему родителю с `errorElement`
+
+3. **UI родителя сохраняется**
+
+   * Layout не ререндерится, только дочерний контент меняется на errorComponent
+
+---
+
+#### Итоговая выжимка
+
+* Для локальных ошибок дочернего маршрута используем **errorElement на этом маршруте**
+* Родительский layout остаётся без изменений
+* Ошибки loader или throw в компоненте → отрабатывают только дочерний `errorElement`
+
+> Идеально для больших приложений с layout-компонентами и множеством страниц внутри одного родителя.
+
+### Как реализовать динамическую генерацию маршрутов на основе данных с сервера
+
+**Шпаргалка:**
+
+> Получаем массив маршрутов с сервера и рендерим `<Route>` внутри `<Routes>` через `map()`.
+
+---
+
+#### 1. Получение данных с сервера
+
+```javascript
+import { useEffect, useState } from 'react';
+
+function useDynamicRoutes() {
+  const [routes, setRoutes] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/routes')
+      .then(res => res.json())
+      .then(data => setRoutes(data));
+  }, []);
+
+  return routes;
+}
+```
+
+* Сервер возвращает массив объектов:
+
+```json
+[
+  { "path": "about", "component": "AboutPage" },
+  { "path": "contact", "component": "ContactPage" }
+]
+```
+
+---
+
+#### 2. Динамическая генерация `<Route>`
+
+```javascript
+import { Routes, Route } from 'react-router-dom';
+import AboutPage from './pages/AboutPage';
+import ContactPage from './pages/ContactPage';
+
+const componentsMap = {
+  AboutPage,
+  ContactPage,
+};
+
+function AppRoutes() {
+  const routes = useDynamicRoutes();
+
+  return (
+    <Routes>
+      {routes.map(route => {
+        const Component = componentsMap[route.component];
+        return <Route key={route.path} path={route.path} element={<Component />} />;
+      })}
+    </Routes>
+  );
+}
+```
+
+* **componentsMap** нужен для сопоставления строковых названий с actual компонентами
+* Каждый объект сервера → `<Route>`
+
+---
+
+#### 3. Важные нюансы
+
+1. **Пока данные загружаются**
+
+   * Можно показать `<Loading />` или Skeleton UI, чтобы не рендерить пустой `<Routes>`
+
+2. **Ленивая загрузка страниц**
+
+   * Вместо импортов всех страниц сразу можно использовать `React.lazy`:
+
+```javascript
+const componentsMap = {
+  AboutPage: React.lazy(() => import('./pages/AboutPage')),
+};
+```
+
+3. **SEO / SSR**
+
+   * Динамические маршруты на клиенте → плохо для SEO
+   * Для SSR лучше формировать маршруты на сервере заранее
+
+4. **Nested Routes**
+
+   * Можно добавлять `children` в объект сервера и рекурсивно рендерить вложенные маршруты через `Route` + `Outlet`
+
+---
+
+#### Итоговая выжимка
+
+* Получаем массив маршрутов с сервера
+* Map → `<Route>` с компонентами
+* Для больших приложений — использовать lazy + Suspense
+* Nested routes = рекурсивно через `children`
+
+> Такой подход позволяет добавлять/изменять маршруты без перекомпиляции фронтенда и динамически управлять страницами на основе данных сервера.
+
+### Как избежать лишних перерендеров layout-компонентов при навигации внутри вложенных маршрутов
+
+**Шпаргалка:**
+
+> Layout перерисовывается, если его state или props изменяются, либо если React считает, что элемент нового маршрута отличается. Правильная структура маршрутов и мемоизация помогают минимизировать ререндеры.
+
+---
+
+#### 1. Правильная структура маршрутов
+
+```javascript
+<Routes>
+  <Route path="/" element={<MainLayout />}>
+    <Route index element={<HomePage />} />
+    <Route path="posts/*" element={<PostsLayout />}>
+      <Route index element={<PostsList />} />
+      <Route path=":id" element={<PostDetail />} />
+    </Route>
+  </Route>
+</Routes>
+```
+
+* **Главный принцип:**
+
+  * Layout должен содержать только элементы **общего UI** (header, sidebar, footer)
+  * Дочерние маршруты рендерятся через `<Outlet />`
+* Навигация между дочерними страницами не трогает родительский layout
+
+---
+
+#### 2. Мемоизация layout-компонентов
+
+```javascript
+import { memo } from 'react';
+
+const MainLayout = memo(function MainLayout({ children }) {
+  return (
+    <>
+      <Header />
+      <Sidebar />
+      <Outlet />
+    </>
+  );
+});
+```
+
+* `React.memo` предотвращает ререндер, если **props и state не меняются**
+
+---
+
+#### 3. Отделение состояния
+
+* Не храните **частые изменения state** (например, selectedPost, filters) в layout
+* Лучше держать их **в дочерних компонентах** или в global store (Redux / Context)
+
+```javascript
+function MainLayout() {
+  return (
+    <>
+      <Header /> {/* статичный */}
+      <Sidebar /> {/* статичный */}
+      <Outlet /> {/* динамический контент */}
+    </>
+  );
+}
+```
+
+---
+
+#### 4. Использование `<React.Suspense>` аккуратно
+
+* Если лениво загружать страницы через `React.lazy`, оборачивайте **только `<Outlet />`**, а не весь layout
+
+```javascript
+<Suspense fallback={<Loader />}>
+  <Outlet />
+</Suspense>
+```
+
+* Иначе каждый lazy-чанк будет ререндерить весь layout
+
+---
+
+#### 5. Ключевые нюансы
+
+1. Layout ререндерится, если **props/state** изменились
+2. `<Outlet />` — единственная часть, где меняется контент
+3. Для больших приложений стоит использовать **split layouts** для отдельных зон (header/sidebar/footer)
+
+---
+
+#### Итоговая выжимка
+
+* Layout = общий UI, `<Outlet />` = динамический контент
+* Мемозируйте layout (`React.memo`)
+* Отделяйте состояние дочерних страниц от layout
+* Suspense оборачивать только `<Outlet />`
+
+> В результате навигация между вложенными маршрутами не трогает родительский layout → меньше лишних перерендеров, выше производительность.
+
+### Как реализовать “Back to previous page” с учётом истории и состояния
+
+**Шпаргалка:**
+
+> Используем `useNavigate` и `useLocation` из React Router для возврата на предыдущий URL с сохранением состояния (`state`).
+
+---
+
+#### 1. Простейший вариант: `navigate(-1)`
+
+```javascript
+import { useNavigate } from 'react-router-dom';
+
+function BackButton() {
+  const navigate = useNavigate();
+
+  return <button onClick={() => navigate(-1)}>Назад</button>;
+}
+```
+
+* Работает как **кнопка браузера “Назад”**
+* Не требует хранения предыдущей страницы вручную
+* ⚠️ Если истории нет (например, прямой заход) → может ничего не сделать
+
+---
+
+#### 2. С сохранением состояния
+
+```javascript
+import { useNavigate, useLocation } from 'react-router-dom';
+
+function SomePage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const goBack = () => {
+    const from = location.state?.from || '/';
+    navigate(from, { replace: true });
+  };
+
+  return <button onClick={goBack}>Назад</button>;
+}
+```
+
+* При переходе на страницу передаем `state`:
+
+```javascript
+<Link to="/details" state={{ from: location }}>
+  Подробнее
+</Link>
+```
+
+* Теперь кнопка “Назад” вернет именно на предыдущий URL
+* `replace: true` → не добавляет новый entry в историю
+
+---
+
+#### 3. Использование с модалками
+
+* Если открыта модалка через route state:
+
+```javascript
+<Link to="/item/42" state={{ background: location }}>Открыть модалку</Link>
+```
+
+* Закрытие модалки:
+
+```javascript
+const navigate = useNavigate();
+navigate(-1); // вернет на страницу, откуда открыли модалку
+```
+
+* Позволяет UX “modal + back” без лишнего рендера страницы
+
+---
+
+#### 4. Важные нюансы
+
+1. **История браузера vs state**
+
+   * `navigate(-1)` использует реальную историю браузера
+   * `navigate(from)` использует значение, переданное через `state` → надежнее, если пользователь зашел напрямую
+
+2. **Замена записи истории**
+
+   * `{ replace: true }` предотвращает дублирование в history
+
+3. **Комбинация с query-параметрами**
+
+   * `state` можно комбинировать с query, чтобы восстановить фильтры/страницу
+
+---
+
+#### Итоговая выжимка
+
+* `navigate(-1)` → стандартный back
+* `navigate(state.from || '/')` → безопасный back с fallback
+* Использовать `state` при переходе → позволяет сохранять **предыдущее состояние UI**
+* Отлично подходит для **модалок, фильтров, детальных страниц**
+
+> Такой подход обеспечивает корректный UX возврата на предыдущую страницу и восстановление состояния интерфейса.
+
+### Проблемы при совместном использовании `Suspense`, `React.lazy` и nested routes
+
+**Шпаргалка:**
+
+> Основные подводные камни — **лишние fallback’ы, ререндеры layout, задержка отображения родительского контента**.
+
+---
+
+#### 1. Проблема: Suspense оборачивает слишком много
+
+```jsx
+<Suspense fallback={<Spinner />}>
+  <Layout>
+    <Outlet />
+  </Layout>
+</Suspense>
+```
+
+* ❌ Ошибка: если ленивый компонент внутри `<Outlet />` загружается, **весь Layout уходит в fallback**
+* Пользователь видит пустой layout, хотя header/sidebar уже могли бы отображаться
+
+**Решение:**
+
+```jsx
+<Layout>
+  <Suspense fallback={<Spinner />}>
+    <Outlet />
+  </Suspense>
+</Layout>
+```
+
+* Теперь fallback применяется **только к дочернему контенту**
+
+---
+
+#### 2. Проблема: несколько nested lazy-компонентов → множественные fallback’ы
+
+```jsx
+<Suspense fallback={<Spinner />}>
+  <NestedLazy />
+</Suspense>
+<Suspense fallback={<Spinner />}>
+  <AnotherNestedLazy />
+</Suspense>
+```
+
+* ❌ UI будет дергаться, каждый lazy загружается отдельно
+* Пользователь видит несколько спиннеров одновременно
+
+**Решение:**
+
+* Объединять nested lazy в **один Suspense** с аккуратным fallback
+* Либо использовать **fallback на уровне конкретного lazy**
+
+---
+
+#### 3. Проблема: лишние ререндеры layout при смене route
+
+* Если lazy-компоненты вызывают state или context в layout
+* Навигация → весь layout пересоздаётся
+
+**Решение:**
+
+* Layout должен содержать только **статичный UI + `<Outlet />`**
+* State / data fetch выносить в **дочерние страницы или global store**
+
+---
+
+#### 4. Проблема: SEO и SSR
+
+* `React.lazy` + Suspense **не работает на сервере напрямую**
+* При SSR вы получите пустой контент, пока компонент не подгрузится
+
+**Решение:**
+
+* На сервере использовать **`loadable-components` или React.lazy + preload**
+* Загружать данные через loader / prefetch, чтобы сервер отдавал HTML с содержимым
+
+---
+
+#### 5. Best practices
+
+1. Suspense оборачивает **только ту часть, которая реально lazy**
+2. Layout = статический, Outlet = динамический + Suspense
+3. Для nested lazy: аккуратно выстраивайте fallback, чтобы не дергалось несколько спиннеров
+4. SSR: lazy + Suspense → используйте preload или loadable-components
+5. State и context в layout минимизировать → избегать лишних ререндеров
+
+---
+
+#### Итоговая выжимка
+
+* Suspense **не должен оборачивать весь layout**
+* Lazy-компоненты → только в Outlet или отдельных частях
+* Для nested routes: объединяйте fallback или используйте отдельные Suspense на уровне конкретного lazy
+* SSR: preload/loader для SEO
+* Layout = статичный, state = в дочерних страницах
+
+> Так вы получаете плавную загрузку nested lazy-страниц, без дергания UI и лишних перерендеров.
+
+### Работа с формами
+
+### Как создать контролируемый input в React и синхронизировать его значение с состоянием компонента?
+
+**Шпаргалка:**
+
+> Контролируемый input — это поле, у которого значение берётся из state, а изменения идут через `onChange` → `setState`. React полностью управляет значением поля.
+
+---
+
+#### Пример
+
+```javascript
+import { useState } from 'react';
+
+function NameInput() {
+  const [name, setName] = useState('');
+
+  return (
+    <input
+      value={name}
+      onChange={(e) => setName(e.target.value)}
+    />
+  );
+}
+```
+
+---
+
+#### Как это работает
+
+* `value={name}` → источник истины = state
+* `onChange` → ловим ввод пользователя
+* `setName(...)` → обновляем state → React перерендеривает input
+* UI всегда синхронизирован с состоянием
+
+---
+
+#### Нюансы для собеса
+
+* Без `onChange` input станет **read-only**
+* Такой подход упрощает валидацию и обработку формы
+* Контролируемые поля удобны для сложной логики и зависимых значений
+
+---
+
+#### Итоговая выжимка
+
+* value из state
+* изменения через onChange
+* state = единственный источник правды
+* React полностью контролирует input поведение
+
+###
+###
+###
+###
+###
+###
+###
+###
+###
+
 ###
 ###
 ###
@@ -1820,6 +3535,8 @@ function Greeting({ name }) {
 ###
 ###
 ###
+
+
 
 ## 7. Оптимизация
 
