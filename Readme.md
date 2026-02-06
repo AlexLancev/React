@@ -3452,7 +3452,7 @@ navigate(-1); // вернет на страницу, откуда открыли
 
 > Так вы получаете плавную загрузку nested lazy-страниц, без дергания UI и лишних перерендеров.
 
-### Работа с формами
+## 6. Работа с формами
 
 ### Как создать контролируемый input в React и синхронизировать его значение с состоянием компонента?
 
@@ -3505,18 +3505,1014 @@ function NameInput() {
 * state = единственный источник правды
 * React полностью контролирует input поведение
 
-###
-###
-###
-###
-###
-###
-###
-###
-###
+### Как обработать отправку формы и предотвратить перезагрузку страницы?
 
-###
-###
+**Шпаргалка:**
+
+> В React отправку формы обрабатывают через `onSubmit`, а перезагрузку страницы отключают вызовом `event.preventDefault()`.
+
+---
+
+#### Пример
+
+```javascript
+import { useState } from 'react';
+
+function LoginForm() {
+  const [email, setEmail] = useState('');
+
+  function handleSubmit(e) {
+    e.preventDefault(); // отменяем перезагрузку
+    console.log('Отправка:', email);
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+      />
+      <button type="submit">Отправить</button>
+    </form>
+  );
+}
+```
+
+---
+
+#### Как это работает
+
+* `onSubmit` — единая точка обработки отправки формы
+* `event.preventDefault()` — отменяет стандартное поведение браузера (reload)
+* После этого можно делать:
+
+  * API-запрос
+  * валидацию
+  * очистку формы
+  * редирект
+
+---
+
+#### Нюансы для собеса
+
+* Обработчик лучше ставить на `<form>`, а не на кнопку
+* Кнопка должна иметь `type="submit"`
+* Submit сработает и по нажатию **Enter** в input
+* Не нужно вешать `onClick` на кнопку вместо `onSubmit`
+
+---
+
+#### Итоговая выжимка
+
+* используем `onSubmit` у формы
+* вызываем `preventDefault()`
+* логика отправки — внутри handler
+* форма отправляется без перезагрузки страницы
+
+### В чем разница между контролируемыми и неконтролируемыми компонентами формы? Когда уместен каждый подход?
+
+**Шпаргалка:**
+
+> Контролируемые — значение хранится в state и управляется React.
+> Неконтролируемые — значение хранится в DOM, React получает его через `ref`.
+
+---
+
+#### Контролируемые компоненты
+
+```javascript
+const [value, setValue] = useState('');
+
+<input
+  value={value}
+  onChange={(e) => setValue(e.target.value)}
+/>
+```
+
+**Как работает:**
+
+* источник истины = state
+* каждое изменение → setState → ререндер
+* React полностью контролирует поле
+
+**Плюсы:**
+
+* простая валидация
+* легко синхронизировать поля
+* удобно для условной логики
+* предсказуемое поведение
+
+---
+
+#### Неконтролируемые компоненты
+
+```javascript
+import { useRef } from 'react';
+
+const inputRef = useRef();
+
+<input ref={inputRef} />
+
+// чтение значения
+const value = inputRef.current.value;
+```
+
+**Как работает:**
+
+* значение живёт в DOM
+* React не управляет вводом
+* читаем значение при submit
+
+**Плюсы:**
+
+* меньше ререндеров
+* проще для очень больших форм
+* ближе к нативному HTML
+
+---
+
+#### Когда какой подход использовать
+
+**Контролируемые — когда:**
+
+* нужна валидация на лету
+* зависимые поля
+* форматирование ввода
+* сложная логика формы
+* enterprise / бизнес-формы
+
+**Неконтролируемые — когда:**
+
+* простая форма
+* данные нужны только при submit
+* важна производительность
+* используете form-библиотеки (например, React Hook Form — гибридный подход)
+
+---
+
+#### Нюансы для собеса
+
+* Смешивать подходы можно, но осторожно
+* Контролируемые — стандарт де-факто в React
+* Неконтролируемые часто используются через form-libs
+
+---
+
+#### Итоговая выжимка
+
+* controlled → state управляет input
+* uncontrolled → DOM + ref
+* controlled = контроль и логика
+* uncontrolled = простота и perf
+* выбор зависит от сложности формы и требований к UX
+
+### Как собрать данные из нескольких полей формы в один объект состояния?
+
+**Шпаргалка:**
+
+> Храним данные формы в одном объекте state и обновляем поля по `name` через универсальный `onChange`-обработчик.
+
+---
+
+#### Пример
+
+```javascript
+import { useState } from 'react';
+
+function Form() {
+  const [form, setForm] = useState({
+    email: '',
+    password: '',
+  });
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+
+    setForm(prev => ({
+      ...prev,
+      [name]: value,
+    }));
+  }
+
+  return (
+    <form>
+      <input name="email" value={form.email} onChange={handleChange} />
+      <input name="password" value={form.password} onChange={handleChange} />
+    </form>
+  );
+}
+```
+
+---
+
+#### Как это работает
+
+* все поля лежат в одном объекте `form`
+* `name` в input совпадает с ключом в state
+* один handler обслуживает все поля
+* обновление через spread → иммутабельно
+
+---
+
+#### Нюансы для собеса
+
+* Всегда используем **функциональный setState** (`prev => ...`)
+* Не мутируем объект напрямую
+* Подходит для большинства CRUD-форм
+* Для checkbox/select нужно брать `checked` или нужный тип значения
+
+Пример для checkbox:
+
+```javascript
+const { name, type, checked, value } = e.target;
+setForm(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+```
+
+---
+
+#### Итоговая выжимка
+
+* один объект state для формы
+* input → `name` = ключ объекта
+* универсальный onChange
+* обновление через spread
+* удобно и масштабируемо для больших форм
+
+### Как реализовать обработчик onChange, который работает для разных типов полей (input, checkbox, select)?
+
+**Шпаргалка:**
+
+> Делают универсальный `handleChange`, который читает `type`, `name`, `value`, `checked` из `event.target` и подставляет правильное значение в state.
+
+---
+
+#### Пример универсального обработчика
+
+```javascript
+function handleChange(e) {
+  const { name, type, value, checked } = e.target;
+
+  setForm(prev => ({
+    ...prev,
+    [name]: type === 'checkbox' ? checked : value,
+  }));
+}
+```
+
+---
+
+#### Использование в форме
+
+```javascript
+const [form, setForm] = useState({
+  name: '',
+  country: '',
+  agree: false,
+});
+
+<input
+  name="name"
+  value={form.name}
+  onChange={handleChange}
+/>
+
+<select
+  name="country"
+  value={form.country}
+  onChange={handleChange}
+>
+  <option value="de">Germany</option>
+  <option value="fr">France</option>
+</select>
+
+<input
+  type="checkbox"
+  name="agree"
+  checked={form.agree}
+  onChange={handleChange}
+/>
+```
+
+---
+
+#### Как это работает
+
+* `name` → ключ в объекте формы
+* `value` → для input/select
+* `checked` → для checkbox
+* по `type` выбираем нужный источник значения
+* один handler обслуживает всю форму
+
+---
+
+#### Нюансы для собеса
+
+* Checkbox и radio → использовать `checked`, а не `value`
+* Number input возвращает строку → при необходимости приводить к числу
+* Для `multiple select` нужно читать `selectedOptions`
+
+Пример для multiple:
+
+```javascript
+const values = [...e.target.selectedOptions].map(o => o.value);
+```
+
+---
+
+#### Итоговая выжимка
+
+* один универсальный onChange
+* берем `name + type + value + checked`
+* checkbox → checked, остальные → value
+* обновляем объект формы иммутабельно
+* масштабируется на большие формы
+
+### Как работать с checkbox и radio в контролируемых формах? Чем они отличаются от text input?
+
+**Шпаргалка:**
+
+> В checkbox и radio контролируется не `value`, а `checked`. Их состояние — это булево значение (или выбор одного из группы), а не строка как у text input.
+
+---
+
+#### Checkbox — контролируемый пример
+
+```javascript
+const [agree, setAgree] = useState(false);
+
+<input
+  type="checkbox"
+  checked={agree}
+  onChange={(e) => setAgree(e.target.checked)}
+/>
+```
+
+**Как работает:**
+
+* используем `checked`, а не `value`
+* `e.target.checked` → true/false
+* состояние — булево
+
+---
+
+#### Radio — контролируемый пример
+
+```javascript
+const [gender, setGender] = useState('male');
+
+<input
+  type="radio"
+  name="gender"
+  value="male"
+  checked={gender === 'male'}
+  onChange={(e) => setGender(e.target.value)}
+/>
+
+<input
+  type="radio"
+  name="gender"
+  value="female"
+  checked={gender === 'female'}
+  onChange={(e) => setGender(e.target.value)}
+/>
+```
+
+**Как работает:**
+
+* radio работает группой (одинаковый `name`)
+* в state храним одно выбранное значение
+* `checked` вычисляется через сравнение
+
+---
+
+#### Чем отличаются от text input
+
+| Поле     | Что контролируем | Тип данных            |
+| -------- | ---------------- | --------------------- |
+| text     | `value`          | строка                |
+| checkbox | `checked`        | boolean               |
+| radio    | `checked`        | выбор одного значения |
+
+---
+
+#### Нюансы для собеса
+
+* Частая ошибка — ставить `value` вместо `checked` у checkbox
+* Radio — это **один state на всю группу**, не отдельный state на каждую кнопку
+* Для нескольких checkbox — обычно хранят объект или массив выбранных значений
+
+Пример массива:
+
+```javascript
+setSelected(prev =>
+  prev.includes(val)
+    ? prev.filter(v => v !== val)
+    : [...prev, val]
+);
+```
+
+---
+
+#### Итоговая выжимка
+
+* checkbox / radio → контролируем через `checked`
+* text input → через `value`
+* checkbox = boolean
+* radio = одно значение из группы
+* radio checked считается через сравнение со state
+
+### Как реализовать простую валидацию поля (например, обязательное поле или минимальная длина)?
+
+**Шпаргалка:**
+
+> Делают проверку значения при `onChange` или `onSubmit`, сохраняют ошибку в state и условно показывают сообщение об ошибке.
+
+---
+
+#### Пример простой валидации
+
+```javascript
+import { useState } from 'react';
+
+function Form() {
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+
+  function validate(value) {
+    if (!value.trim()) return 'Поле обязательно';
+    if (value.length < 3) return 'Минимум 3 символа';
+    return '';
+  }
+
+  function handleChange(e) {
+    const v = e.target.value;
+    setName(v);
+    setError(validate(v));
+  }
+
+  return (
+    <form>
+      <input value={name} onChange={handleChange} />
+      {error && <span>{error}</span>}
+    </form>
+  );
+}
+```
+
+---
+
+#### Валидация при submit
+
+```javascript
+function handleSubmit(e) {
+  e.preventDefault();
+  const err = validate(name);
+  setError(err);
+  if (err) return;
+
+  // отправка формы
+}
+```
+
+---
+
+#### Как это работает
+
+* правила проверки — в отдельной функции
+* результат — строка ошибки или пусто
+* ошибка хранится в state
+* UI рендерит сообщение условно
+
+---
+
+#### Нюансы для собеса
+
+* `trim()` — чтобы не пропускать строки из пробелов
+* Валидация бывает:
+
+  * onChange — мгновенная обратная связь
+  * onBlur — после выхода из поля
+  * onSubmit — только при отправке
+* Для нескольких полей обычно хранят объект ошибок `{ field: message }`
+
+---
+
+#### Итоговая выжимка
+
+* проверка в onChange / onSubmit
+* ошибка хранится в state
+* отдельная функция validate
+* условный рендер сообщения
+* минимум: required + min length
+
+### Как сделать select и textarea контролируемыми элементами в React?
+
+**Шпаргалка:**
+
+> `select` и `textarea` делаются контролируемыми так же, как input: их значение связывается со state через `value` + `onChange`.
+
+---
+
+#### Контролируемый textarea
+
+```javascript
+import { useState } from 'react';
+
+function Comment() {
+  const [text, setText] = useState('');
+
+  return (
+    <textarea
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+    />
+  );
+}
+```
+
+---
+
+#### Контролируемый select
+
+```javascript
+const [country, setCountry] = useState('');
+
+<select
+  value={country}
+  onChange={(e) => setCountry(e.target.value)}
+>
+  <option value="">Выберите страну</option>
+  <option value="de">Germany</option>
+  <option value="fr">France</option>
+</select>
+```
+
+---
+
+#### Multiple select
+
+```javascript
+const [tags, setTags] = useState([]);
+
+<select
+  multiple
+  value={tags}
+  onChange={(e) => {
+    const values = [...e.target.selectedOptions].map(o => o.value);
+    setTags(values);
+  }}
+>
+  <option value="react">React</option>
+  <option value="js">JS</option>
+</select>
+```
+
+---
+
+#### Чем отличается от обычного HTML
+
+* В HTML у `textarea` значение пишется между тегами
+* В React — только через `value` проп
+
+```html
+<!-- HTML -->
+<textarea>text</textarea>
+```
+
+```jsx
+// React
+<textarea value={text} />
+```
+
+* У `select` в React выбранный пункт задаётся через `value` у select, а не `selected` у option
+
+---
+
+#### Нюансы для собеса
+
+* `value + onChange` — обязательны для контролируемого режима
+* Не использовать `selected` у `<option>` в React
+* Multiple select → массив значений
+* Поведение полностью аналогично text input
+
+---
+
+#### Итоговая выжимка
+
+* textarea и select контролируются через value
+* изменения — через onChange
+* textarea в React не использует children
+* select не использует selected у option
+* multiple select → массив в state
+
+### Как отключить кнопку отправки формы до тех пор, пока поля не валидны?
+
+**Шпаргалка:**
+
+> Кнопке ставят `disabled`, вычисляя флаг валидности формы из state (значений и ошибок). Пока форма невалидна — кнопка неактивна.
+
+---
+
+#### Пример
+
+```javascript
+import { useState } from 'react';
+
+function Form() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const isValid =
+    email.trim() !== '' &&
+    password.length >= 6;
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!isValid) return;
+    console.log('submit');
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+      />
+
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+      />
+
+      <button type="submit" disabled={!isValid}>
+        Отправить
+      </button>
+    </form>
+  );
+}
+```
+
+---
+
+#### Вариант через объект ошибок
+
+```javascript
+const hasErrors = Object.values(errors).some(Boolean);
+
+<button disabled={hasErrors}>
+```
+
+---
+
+#### Как это работает
+
+* валидность считается из state полей
+* или из state ошибок
+* `disabled` — обычный булев проп
+* React автоматически обновит кнопку при изменении state
+
+---
+
+#### Нюансы для собеса
+
+* Лучше вычислять `isValid`, а не хранить его в state (derived state)
+* Можно оборачивать в `useMemo`, если проверок много
+* Часто комбинируют:
+
+  * валидность
+  * touched
+  * isSubmitting
+
+```javascript
+disabled={!isValid || isSubmitting}
+```
+
+---
+
+#### Итоговая выжимка
+
+* disabled зависит от валидности формы
+* валидность считаем из state
+* не храним derived-флаг без необходимости
+* удобно для UX и защиты от пустых submit
+* часто комбинируется с isSubmitting
+
+### Какие базовые атрибуты доступности и нативной валидации форм вы используете (required, disabled, aria-*)?
+
+**Шпаргалка:**
+
+> Используют нативные атрибуты HTML-валидации (`required`, `pattern`, `minLength`, `disabled`) и aria-атрибуты (`aria-invalid`, `aria-describedby`) для доступности и поддержки screen reader’ов.
+
+---
+
+#### Базовые нативные атрибуты валидации
+
+```jsx
+<input
+  type="email"
+  required
+  minLength={5}
+  pattern=".+@.+\..+"
+/>
+```
+
+**Часто используемые:**
+
+* `required` — обязательное поле
+* `minLength / maxLength` — длина строки
+* `min / max` — числовые диапазоны
+* `pattern` — regex-проверка
+* `type="email|url|number"` — встроенная проверка формата
+
+---
+
+#### disabled и readOnly
+
+```jsx
+<input disabled />
+<input readOnly />
+```
+
+**Разница:**
+
+* `disabled` — поле неактивно и **не отправляется** в форме
+* `readOnly` — нельзя редактировать, но значение отправляется
+
+---
+
+#### Связь label и поля (критично для a11y)
+
+```jsx
+<label htmlFor="email">Email</label>
+<input id="email" />
+```
+
+* Нужно для screen reader
+* Увеличивает кликабельную область
+
+---
+
+#### aria-атрибуты для ошибок
+
+```jsx
+<input
+  aria-invalid={!!error}
+  aria-describedby="email-error"
+/>
+
+{error && (
+  <div id="email-error">
+    Неверный email
+  </div>
+)}
+```
+
+**Основные:**
+
+* `aria-invalid` — поле содержит ошибку
+* `aria-describedby` — ссылка на текст ошибки/подсказки
+* `aria-required` — обязательное поле (если не используем `required`)
+
+---
+
+#### Полезные UX-атрибуты
+
+```jsx
+<input autoComplete="email" />
+<input autoFocus />
+```
+
+* `autoComplete` — автозаполнение браузером
+* `autoFocus` — фокус при загрузке
+
+---
+
+#### Нюансы для собеса
+
+* Нативная валидация — быстрый базовый слой, но часто дополняется JS-логикой
+* aria-атрибуты важны для доступности и enterprise-проектов
+* `disabled` убирает поле из submit — это часто забывают
+* label + id — обязательный паттерн
+
+---
+
+#### Итоговая выжимка
+
+* required / pattern / minLength — нативная валидация
+* disabled ≠ readOnly
+* label + htmlFor — обязательно
+* aria-invalid + aria-describedby — для ошибок
+* autoComplete — улучшает UX
+* a11y-атрибуты — плюс к качеству и оценке на собесе
+
+
+### Как спроектировать большую форму (30–50 полей), чтобы она не вызывала массовые ре-рендеры при изменении одного поля?
+
+**Шпаргалка:**
+
+> Главный принцип — локализовать состояние и подписки: разбивать форму на изолированные компоненты, избегать одного общего state-объекта и использовать мемоизацию / field-level subscriptions.
+
+---
+
+#### Базовая архитектура
+
+**Плохо:**
+
+* один `useState(formData)` на 50 полей
+* форма в одном компоненте
+* каждый `onChange` → ре-рендер всей формы
+
+**Хорошо:**
+
+* отдельный компонент на поле
+* локальный state или подписка только на своё значение
+* родитель не перерендеривает всё дерево
+
+---
+
+#### Разбиение на подформы
+
+```jsx
+<Form>
+  <UserBlock />
+  <AddressBlock />
+  <ContactsBlock />
+</Form>
+```
+
+* логические группы полей
+* изоляция рендеров
+* проще мемоизировать
+
+---
+
+#### React.memo для полей
+
+```jsx
+const Field = React.memo(({ value, onChange }) => {
+  return <input value={value} onChange={onChange} />;
+});
+```
+
+* поле ререндерится только при изменении своих props
+* важно держать стабильные ссылки на handlers (`useCallback`)
+
+---
+
+#### Не хранить всё в одном объекте
+
+**Вместо:**
+
+```js
+setForm({ ...form, name: v })
+```
+
+**Лучше:**
+
+* несколько useState
+* или useReducer с селективной передачей данных
+* или библиотека форм с подписками
+
+---
+
+#### Использовать uncontrolled + ref (где можно)
+
+```jsx
+<input ref={nameRef} />
+```
+
+* нет state → нет ре-рендеров
+* подходит для простых полей
+* сбор значений при submit
+
+---
+
+#### Form-библиотеки с подписками полей
+
+Лучшие для больших форм:
+
+* **React Hook Form** — подписка на конкретное поле, почти нет ре-рендеров
+* **Final Form** — field-level subscription
+* **Formik** — тяжелее, требует оптимизации
+
+---
+
+#### Контекст — осторожно
+
+Если форма через Context:
+
+* разделять контексты по блокам
+* не прокидывать весь formState
+* использовать селекторы / custom hooks
+
+---
+
+#### Нюансы для собеса
+
+* проблема — не в количестве полей, а в области обновления state
+* изоляция поля = изоляция рендера
+* uncontrolled + refs — валидный production-паттерн
+* RHF выбирают именно за performance на больших формах
+
+---
+
+#### Итоговая выжимка
+
+* не хранить всю форму в одном state
+* разбивать на компоненты
+* React.memo + стабильные props
+* field-level подписки
+* uncontrolled / React Hook Form для больших форм
+* минимизировать область обновления состояния
+
+### Когда имеет смысл использовать useReducer вместо useState для управления формой?
+
+**Шпаргалка:**
+
+> useReducer используют, когда форма имеет сложную логику обновлений: много полей, взаимозависимые изменения, валидацию, сбросы и разные типы действий. Он даёт предсказуемые переходы состояния через actions.
+
+---
+
+#### Когда useState уже неудобен
+
+Подумать о `useReducer`, если:
+
+* 10+ полей и много обработчиков
+* сложные обновления (несколько полей за раз)
+* поля влияют друг на друга
+* есть reset / patch / fill-from-server
+* много валидационной логики
+* появляются цепочки `setState`
+
+---
+
+#### Признак из практики
+
+Если обработчики выглядят так:
+
+```js
+setForm(prev => ({
+  ...prev,
+  name: value,
+  touched: { ...prev.touched, name: true },
+  errors: validate(...)
+}))
+```
+
+— это уже кандидат на reducer.
+
+---
+
+#### Что даёт useReducer
+
+* единая точка логики обновления формы
+* action-based обновления (`SET_FIELD`, `RESET`, `SET_ERRORS`)
+* легче тестировать
+* предсказуемые state transitions
+* чище код при сложных сценариях
+
+---
+
+#### Типовые actions формы
+
+```js
+dispatch({ type: 'SET_FIELD', name, value })
+dispatch({ type: 'RESET' })
+dispatch({ type: 'SET_ERRORS', errors })
+dispatch({ type: 'LOAD_DATA', payload })
+```
+
+---
+
+#### Когда useReducer НЕ нужен
+
+* простая форма 2–5 полей
+* нет зависимых вычислений
+* только простые `onChange`
+* нет сложной валидации
+
+В этом случае `useState` быстрее и проще.
+
+---
+
+#### Нюансы для собеса
+
+* useReducer — не про “больше полей”, а про **сложность логики**
+* хорошо сочетается с Context для form-store
+* похож на mini-Redux внутри компонента
+* уменьшает хаос setState
+
+---
+
+#### Итоговая выжимка
+
+* useReducer — когда сложная логика формы
+* много взаимосвязанных обновлений
+* action-based подход
+* удобен для reset / batch updates
+* для простых форм — useState проще и быстрее
+
 ###
 ###
 ###
