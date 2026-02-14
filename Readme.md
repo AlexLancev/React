@@ -4513,24 +4513,2294 @@ dispatch({ type: 'LOAD_DATA', payload })
 * удобен для reset / batch updates
 * для простых форм — useState проще и быстрее
 
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
-###
+### Как построить архитектуру переиспользуемых form field компонентов (Field, FormControl, ErrorMessage)?
+
+**Шпаргалка:**
+
+> Делают композицию: FormControl — обёртка поля, Field — сам input/select/textarea, ErrorMessage — вывод ошибки. Связывают через props или context формы. Разделяют UI, логику и валидацию.
+
+---
+
+#### Базовая схема компонентов
+
+**FormControl** — отвечает за структуру и доступность:
+
+* label
+* input
+* error
+* aria-атрибуты
+* layout
+
+**Field** — только поле ввода:
+
+* принимает `value / onChange / name`
+* не знает про верстку формы
+
+**ErrorMessage** — только отображение ошибки:
+
+* получает `error`
+* рендерит текст или null
+
+---
+
+#### Минимальный пример композиции
+
+```jsx
+function FormControl({ label, error, children, htmlFor }) {
+  return (
+    <div>
+      <label htmlFor={htmlFor}>{label}</label>
+      {children}
+      {error && <ErrorMessage error={error} />}
+    </div>
+  );
+}
+
+function Field(props) {
+  return <input {...props} />;
+}
+
+function ErrorMessage({ error }) {
+  return <span>{error}</span>;
+}
+```
+
+Использование:
+
+```jsx
+<FormControl label="Email" error={errors.email} htmlFor="email">
+  <Field
+    id="email"
+    name="email"
+    value={form.email}
+    onChange={handleChange}
+  />
+</FormControl>
+```
+
+---
+
+#### Как делают в больших формах
+
+**1️⃣ Общий контракт поля**
+
+Все поля принимают одинаковые props:
+
+* name
+* value
+* onChange
+* onBlur
+* error
+* disabled
+
+→ можно подменять input/select/date без переписывания формы.
+
+---
+
+**2️⃣ Context формы**
+
+Чтобы не прокидывать props глубоко:
+
+```jsx
+const FormContext = createContext();
+
+const { getFieldProps, getError } = useFormContext();
+```
+
+Field сам подключается к форме.
+
+---
+
+**3️⃣ Render props / children function**
+
+```jsx
+<Field name="email">
+  {(fieldProps) => <input {...fieldProps} />}
+</Field>
+```
+
+Даёт гибкость UI.
+
+---
+
+#### Важные архитектурные принципы
+
+* UI и логика формы разделены
+* Field не знает про layout
+* ErrorMessage не знает про input
+* единый API для всех типов полей
+* доступность: label + id + aria-describedby
+
+---
+
+#### Нюансы для собеса
+
+* это композиция, не наследование
+* единый интерфейс пропсов = масштабируемость
+* context уменьшает prop drilling
+* легко подключать React Hook Form / Formik адаптеры
+
+---
+
+#### Итоговая выжимка
+
+* FormControl — обёртка + label + error
+* Field — чистый контрол ввода
+* ErrorMessage — только ошибка
+* единый контракт пропсов
+* context или helpers для подключения к форме
+* композиционная архитектура легко масштабируется
+
+### Как реализовать динамическую форму с добавлением и удалением полей (например, список телефонов)?
+
+**Шпаргалка:**
+
+> Динамические поля хранятся в массиве в state. Рендерим список через map, добавляем — через spread, удаляем — через filter. Ключи — стабильные id, не index.
+
+---
+
+#### Базовая модель состояния
+
+```js
+const [phones, setPhones] = useState([
+  { id: 1, value: '' }
+]);
+```
+
+Лучше хранить **объекты с id**, а не просто строки — проще управлять и не ломаются key.
+
+---
+
+#### Рендер динамических полей
+
+```jsx
+{phones.map(p => (
+  <input
+    key={p.id}
+    value={p.value}
+    onChange={e => handleChange(p.id, e.target.value)}
+  />
+))}
+```
+
+---
+
+#### Изменение конкретного поля
+
+```js
+function handleChange(id, value) {
+  setPhones(prev =>
+    prev.map(p => p.id === id ? { ...p, value } : p)
+  );
+}
+```
+
+Иммутабельное обновление — обязательно.
+
+---
+
+#### Добавление поля
+
+```js
+function addPhone() {
+  setPhones(prev => [
+    ...prev,
+    { id: crypto.randomUUID(), value: '' }
+  ]);
+}
+```
+
+---
+
+#### Удаление поля
+
+```js
+function removePhone(id) {
+  setPhones(prev => prev.filter(p => p.id !== id));
+}
+```
+
+---
+
+#### Почему нельзя использовать index как key
+
+* при удалении/вставке React перепутает элементы
+* возможны баги с фокусом и значениями
+* controlled inputs начнут “прыгать”
+
+Нужен **стабильный ключ**.
+
+---
+
+#### Масштабирование подхода
+
+Для больших форм:
+
+* useReducer вместо useState
+* хранить `{ values, errors, touched }`
+* делать универсальные actions: ADD_FIELD / REMOVE_FIELD / UPDATE_FIELD
+* или использовать React Hook Form (useFieldArray)
+
+---
+
+#### Нюансы для собеса
+
+* массив в state + map рендер
+* add → spread
+* remove → filter
+* update → map
+* ключ = стабильный id
+* только иммутабельные операции
+
+---
+
+#### Итоговая выжимка
+
+* динамические поля = массив в state
+* рендер через map
+* add: spread
+* remove: filter
+* update: map
+* key только стабильный id
+* не использовать index как key
+
+### Как реализовать многошаговую форму (wizard) с сохранением состояния между шагами?
+
+**Шпаргалка:**
+
+> Делают один общий state формы и отдельный state текущего шага. Данные хранятся в родителе (или Context), шаги — отдельные компоненты. Переключаем шаги без размонтирования данных.
+
+---
+
+#### Базовая архитектура
+
+Нужно два состояния:
+
+* **formData** — все данные формы
+* **step** — текущий шаг
+
+```js
+const [step, setStep] = useState(1);
+const [formData, setFormData] = useState({
+  name: '',
+  email: '',
+  phone: ''
+});
+```
+
+---
+
+#### Рендер шагов
+
+```jsx
+{step === 1 && <Step1 data={formData} onChange={setFormData} />}
+{step === 2 && <Step2 data={formData} onChange={setFormData} />}
+```
+
+Шаги получают данные и сеттер — ничего не теряется при переключении.
+
+---
+
+#### Обновление полей внутри шага
+
+```js
+function updateField(name, value) {
+  setFormData(prev => ({ ...prev, [name]: value }));
+}
+```
+
+---
+
+#### Навигация по шагам
+
+```js
+<button onClick={() => setStep(s => s + 1)}>Next</button>
+<button onClick={() => setStep(s => s - 1)}>Back</button>
+```
+
+---
+
+#### Чтобы данные не терялись при размонтировании шагов
+
+Есть 3 устойчивых варианта:
+
+**1️⃣ State в родителе (самый частый)**
+Шаги — тупые компоненты.
+
+**2️⃣ Context формы**
+Если шагов много и глубокая вложенность.
+
+**3️⃣ Глобальный store (Redux / Zustand)**
+Если wizard длинный и используется в разных местах.
+
+---
+
+#### Валидация по шагам
+
+Обычно:
+
+* валидируем только поля текущего шага
+* не пускаем дальше при ошибках
+* финальная валидация — перед submit
+
+---
+
+#### Wizard + Router
+
+Иногда шаг = маршрут:
+
+```
+/form/step-1
+/form/step-2
+```
+
+Данные:
+
+* в Context / store
+* или в loader/store кеш
+
+Даёт deep-linking и back/forward навигацию.
+
+---
+
+#### Нюансы для собеса
+
+* единый state формы — вне шагов
+* шаги = презентационные компоненты
+* не хранить state внутри каждого шага
+* валидация — пошаговая
+* часто используют form-libs с wizard-паттерном
+
+---
+
+#### Итоговая выжимка
+
+* один formData state
+* отдельный state шага
+* шаги — отдельные компоненты
+* данные хранятся в родителе / context
+* переключение шага не сбрасывает данные
+* валидация — по шагам + финальная проверка
+
+### Как реализовать условные поля, которые появляются в зависимости от значений других полей?
+
+**Шпаргалка:**
+
+> Условные поля делают через условный рендеринг на основе значений формы. Состояние хранится централизованно, а показ поля — это просто `if / && / ternary`. Важно решить: сохраняем ли скрытые значения или очищаем.
+
+---
+
+#### Базовый пример
+
+```js
+const [form, setForm] = useState({
+  hasCompany: false,
+  companyName: ''
+});
+```
+
+```jsx
+<input
+  type="checkbox"
+  checked={form.hasCompany}
+  onChange={e =>
+    setForm(p => ({ ...p, hasCompany: e.target.checked }))
+  }
+/>
+
+{form.hasCompany && (
+  <input
+    value={form.companyName}
+    onChange={e =>
+      setForm(p => ({ ...p, companyName: e.target.value }))
+    }
+  />
+)}
+```
+
+---
+
+#### Что важно продумать заранее
+
+**1️⃣ Что делать со значением скрытого поля**
+
+Два варианта:
+
+**Сохранять:**
+
+* удобно при возврате назад
+* не теряются данные
+
+**Очищать:**
+
+* чтобы не отправить лишнее на сервер
+
+```js
+useEffect(() => {
+  if (!form.hasCompany) {
+    setForm(p => ({ ...p, companyName: '' }));
+  }
+}, [form.hasCompany]);
+```
+
+---
+
+**2️⃣ Валидация должна быть условной**
+
+```js
+if (form.hasCompany && !form.companyName) {
+  errors.companyName = 'Required';
+}
+```
+
+---
+
+**3️⃣ Не хранить “флаг показа” отдельно**
+
+Плохо:
+
+```js
+showCompanyField = true
+```
+
+Хорошо — выводить из данных:
+
+```
+show = form.hasCompany
+```
+
+Нет дублирования источников истины.
+
+---
+
+#### Масштабируемый подход (для больших форм)
+
+* схема условий в конфиге:
+
+```js
+visibleIf: values => values.type === 'business'
+```
+
+* или schema-driven формы
+* используют form libs (React Hook Form watch / Formik dependencies)
+
+---
+
+#### Нюансы для собеса
+
+* это обычный условный рендеринг
+* источник условия — state формы
+* продумать очистку скрытых значений
+* условная валидация обязательна
+* не дублировать флаги видимости
+
+---
+
+#### Итоговая выжимка
+
+* условный рендеринг от значений формы
+* state — единый источник истины
+* решаем: хранить или чистить скрытые поля
+* валидация — тоже условная
+* не заводить отдельный state для видимости поля
+
+### Как реализовать схемную валидацию через Yup или Zod и связать её с формой?
+
+**Шпаргалка:**
+
+> Описывают схему данных (schema), валидируют весь объект формы через Yup/Zod и получают errors. Чаще всего подключают через form-библиотеки (React Hook Form / Formik) через resolver — это самый практичный способ.
+
+---
+
+#### Подход 1 — через React Hook Form (самый популярный)
+
+**Zod пример**
+
+```js
+import { z } from 'zod';
+
+const schema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6)
+});
+```
+
+```js
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+const form = useForm({
+  resolver: zodResolver(schema)
+});
+```
+
+```jsx
+<input {...form.register('email')} />
+<p>{form.formState.errors.email?.message}</p>
+```
+
+---
+
+**Yup аналогично**
+
+```js
+const schema = yup.object({
+  email: yup.string().email().required()
+});
+```
+
+```js
+resolver: yupResolver(schema)
+```
+
+---
+
+#### Подход 2 — ручная валидация без form-library
+
+Подходит для простых форм.
+
+**Zod**
+
+```js
+const result = schema.safeParse(formData);
+
+if (!result.success) {
+  const errors = result.error.flatten().fieldErrors;
+  setErrors(errors);
+}
+```
+
+---
+
+**Yup**
+
+```js
+try {
+  await schema.validate(formData, { abortEarly: false });
+} catch (e) {
+  // e.inner → список ошибок по полям
+}
+```
+
+---
+
+#### Почему схема лучше ручных проверок
+
+* единое описание правил
+* переиспользуемость
+* типизация (особенно Zod + TS)
+* сервер и клиент могут делить схему
+* легко тестировать отдельно от UI
+
+---
+
+#### Yup vs Zod — что сказать на собесе
+
+**Yup**
+
+* старше, часто в Formik
+* декларативный chain API
+
+**Zod**
+
+* лучше TypeScript-интеграция
+* типы выводятся из схемы
+* строгая типобезопасность
+
+---
+
+#### Практические нюансы
+
+* отключать `abortEarly`, чтобы собрать все ошибки
+* делать разные схемы для шагов wizard
+* поддерживаются conditional rules (`when` / `refine`)
+* схема должна совпадать с shape formData
+
+---
+
+#### Нюансы для собеса
+
+* схема = единый источник правил
+* подключается через resolver
+* ошибки мапятся в form errors
+* Zod лучше для TS-проектов
+* можно валидировать вне UI
+
+---
+
+#### Итоговая выжимка
+
+* описываем schema (Yup/Zod)
+* подключаем через resolver (лучше всего)
+* валидируем весь объект формы
+* получаем errors по полям
+* Zod — сильнее для TypeScript
+* схема отделяет валидацию от UI логики
+
+### Как реализовать асинхронную валидацию (например, проверку уникальности email) без лишних запросов?
+
+**Шпаргалка:**
+
+> Асинхронную валидацию делают с debounce + отменой устаревших запросов. Проверку запускают не на каждый символ, а по задержке или blur. Результат валидируют только для последнего значения.
+
+---
+
+#### Базовый подход
+
+Не дергать API на каждый `onChange`.
+Использовать **debounce**.
+
+```js
+useEffect(() => {
+  const t = setTimeout(() => {
+    checkEmail(email);
+  }, 400);
+
+  return () => clearTimeout(t);
+}, [email]);
+```
+
+---
+
+#### Защита от гонок запросов (race condition)
+
+Пользователь быстро меняет значение → старый ответ пришёл позже.
+
+Решение — AbortController:
+
+```js
+useEffect(() => {
+  const controller = new AbortController();
+
+  async function run() {
+    const res = await fetch('/check', {
+      signal: controller.signal
+    });
+  }
+
+  run();
+  return () => controller.abort();
+}, [email]);
+```
+
+---
+
+#### Проверка только на blur (ещё дешевле)
+
+```jsx
+<input onBlur={validateEmailAsync} />
+```
+
+Подходит, если realtime-проверка не нужна.
+
+---
+
+#### Интеграция с React Hook Form
+
+```js
+register('email', {
+  validate: async (value) => {
+    const ok = await apiCheck(value);
+    return ok || 'Email занят';
+  }
+});
+```
+
+* включить `mode: "onBlur"` или debounce снаружи.
+
+---
+
+#### Yup / Zod async правила
+
+**Zod**
+
+```js
+z.string().email().refine(async v => {
+  return await apiCheck(v);
+}, 'Email занят')
+```
+
+---
+
+#### Дополнительные оптимизации
+
+* не валидировать, если формат уже невалиден
+* кэшировать проверенные значения
+* не проверять пустые строки
+* проверять только если значение изменилось от исходного
+
+---
+
+#### Нюансы для собеса
+
+* debounce обязателен
+* отмена устаревших запросов
+* защита от race condition
+* blur-валидация — дешёвый вариант
+* async validate поддерживается form-libs
+
+---
+
+#### Итоговая выжимка
+
+* debounce ввод
+* не слать запрос на каждый символ
+* отменять старые запросы
+* валидировать на blur или с задержкой
+* async validate через form library
+* кэш + формат-чек перед API
+
+### Как организовать debounce-валидацию поля при вводе текста?
+
+**Шпаргалка:**
+
+> Debounce — это задержка запуска валидации после ввода. Реализуется через setTimeout + cleanup в useEffect или через debounce-функцию. Позволяет не запускать проверку на каждый символ.
+
+---
+
+#### Самый простой способ — useEffect + setTimeout
+
+```js
+const [value, setValue] = useState('');
+const [error, setError] = useState('');
+
+useEffect(() => {
+  const t = setTimeout(() => {
+    validate(value);
+  }, 400);
+
+  return () => clearTimeout(t);
+}, [value]);
+```
+
+Каждый новый ввод:
+
+* сбрасывает таймер
+* валидация запускается только после паузы
+
+---
+
+#### Пример validate
+
+```js
+function validate(v) {
+  if (v.length < 3) setError('Минимум 3 символа');
+  else setError('');
+}
+```
+
+---
+
+#### Важно: стабильная ссылка на validate
+
+Если validate создаётся на каждом рендере — обернуть:
+
+```js
+const validate = useCallback((v) => {
+  ...
+}, []);
+```
+
+Иначе debounce будет ломаться.
+
+---
+
+#### Через lodash.debounce
+
+```js
+const debouncedValidate = useMemo(
+  () => debounce(validate, 400),
+  []
+);
+
+onChange={e => debouncedValidate(e.target.value)}
+```
+
+Важно: отменять при unmount:
+
+```js
+useEffect(() => debouncedValidate.cancel, []);
+```
+
+---
+
+#### Debounce + async валидация
+
+Добавляют ещё:
+
+* AbortController
+* проверку “последнего значения”
+* ignore устаревших ответов
+
+---
+
+#### Интеграция с form libraries
+
+**React Hook Form**
+
+* mode: `"onChange"`
+* debounce вручную в custom validate
+* или через watch + useEffect
+
+---
+
+#### Нюансы для собеса
+
+* debounce = защита от частых проверок
+* реализуется таймером
+* cleanup обязателен
+* validate должен быть стабильным
+* полезен для async API-валидаций
+
+---
+
+#### Итоговая выжимка
+
+* debounce = задержка проверки
+* setTimeout + cleanup
+* новый ввод сбрасывает таймер
+* validate мемоизировать
+* lodash.debounce — удобный вариант
+* обязателен для async-проверок и тяжёлой валидации
+
+### Сравните архитектуру Formik и React Hook Form: в чем различия по модели данных и производительности?
+
+**Шпаргалка:**
+
+> Formik — controlled-подход: хранит значения в React state → больше ререндеров. React Hook Form — uncontrolled + refs → меньше ререндеров и выше производительность на больших формах.
+
+---
+
+#### Модель данных
+
+**Formik**
+
+* controlled inputs
+* все значения лежат в state формы
+* `onChange → setState → re-render`
+* форма — единый источник значений
+
+```
+input → setFieldValue → state → render
+```
+
+---
+
+**React Hook Form**
+
+* uncontrolled inputs
+* значения хранятся в DOM + refs
+* state обновляется выборочно
+* подписки на конкретные поля
+
+```
+input → ref store → selective notify
+```
+
+---
+
+#### Механика ререндеров
+
+**Formik**
+
+* изменение поля → обновляется form state
+* часто ререндерится вся форма
+* оптимизации через `FastField`, memo
+
+---
+
+**React Hook Form**
+
+* изменение поля → ререндерится только подписанный компонент
+* остальные поля не трогаются
+* subscription-based обновления
+
+---
+
+#### Производительность на больших формах
+
+**Formik**
+
+* нормально для малых/средних форм
+* 30–50+ полей → заметные лишние рендеры
+* требует ручной оптимизации
+
+---
+
+**React Hook Form**
+
+* лучше масштабируется
+* минимальные ререндеры
+* быстрее при динамических и больших формах
+* useFieldArray работает эффективно
+
+---
+
+#### Работа с валидацией
+
+**Formik**
+
+* тесно связан с Yup
+* схема — стандартный путь
+* sync + async удобно
+
+**React Hook Form**
+
+* schema через resolver (Yup/Zod)
+* или rules на поле
+* гибче по стратегиям валидации
+
+---
+
+#### DX и API стиль
+
+**Formik**
+
+* более декларативный
+* понятен новичкам
+* ближе к “React-way” controlled форм
+
+**React Hook Form**
+
+* более низкоуровневый
+* register / refs
+* меньше кода, но другой mental model
+
+---
+
+#### Нюансы для собеса
+
+* Formik = controlled архитектура
+* RHF = uncontrolled + refs
+* RHF — subscription модель
+* RHF меньше ререндерит
+* Formik проще концептуально
+* RHF быстрее на больших формах
+
+---
+
+#### Итоговая выжимка
+
+* Formik — controlled, state-driven
+* React Hook Form — uncontrolled, ref-driven
+* Formik чаще ререндерит форму
+* RHF — точечные обновления
+* RHF лучше по perf на больших формах
+* Formik проще, RHF масштабируемее
+
+### Почему React Hook Form обычно производительнее Formik на больших формах?
+
+**Шпаргалка:**
+
+> React Hook Form быстрее, потому что использует uncontrolled inputs + refs и подписочную модель обновлений — ререндерятся только нужные поля. Formik хранит всё в React state → чаще триггерит ререндер всей формы.
+
+---
+
+#### Ключевое архитектурное отличие
+
+**Formik — controlled модель**
+
+* каждое поле связано со state
+* каждый `onChange` → setState
+* обновляется form state → ререндер формы
+* много React-циклов рендера
+
+```
+change → setState → render tree
+```
+
+---
+
+**React Hook Form — uncontrolled модель**
+
+* значения живут в DOM
+* библиотека читает их через refs
+* React state почти не трогается
+* обновления идут по подпискам
+
+```
+change → ref store → notify subscribers
+```
+
+---
+
+#### Подписочная (subscription) модель RHF
+
+В RHF:
+
+* компоненты подписываются на конкретные поля
+* изменение email не ререндерит password
+* formState тоже разбит на подписки
+
+```js
+useFormState({ name: 'email' })
+```
+
+→ точечные обновления.
+
+---
+
+#### Меньше setState → меньше reconciliation
+
+Formik:
+
+* много setState
+* React reconciliation на каждом изменении
+* дорого на 30–100 полях
+
+RHF:
+
+* минимум setState
+* меньше diff и reconciliation
+* меньше работы Virtual DOM
+
+---
+
+#### Динамические поля и массивы
+
+**Formik**
+
+* FieldArray → частые ререндеры
+* тяжело оптимизировать
+
+**RHF**
+
+* useFieldArray → работает через refs
+* добавление/удаление дешевле
+
+---
+
+#### Валидация тоже влияет
+
+Formik:
+
+* часто валидирует весь объект формы
+
+RHF:
+
+* валидирует поле или subset
+* schema-resolver вызывается точечно (по режиму)
+
+---
+
+#### Практический эффект
+
+На больших формах:
+
+* меньше лагов при вводе
+* стабильнее ввод текста
+* меньше “input delay”
+* лучше mobile perf
+
+---
+
+#### Нюансы для собеса
+
+* RHF = uncontrolled + refs
+* subscription updates
+* меньше setState
+* меньше ререндеров
+* точечные подписки на поля
+* лучше масштабируется по perf
+
+---
+
+#### Итоговая выжимка
+
+* RHF не держит всё в React state
+* использует refs и DOM как источник значений
+* обновляет только подписанные поля
+* минимум ререндеров
+* меньше reconciliation
+* поэтому быстрее на больших формах
+
+### Как интегрировать форму с глобальным состоянием (Redux / Zustand / RTK Query)?
+
+**Шпаргалка:**
+
+> Форму обычно держат в локальном состоянии, а в глобальный store отправляют только результат (submit или autosave). Глобальное состояние используют для initialValues, submit и серверных операций. Не стоит делать каждое поле напрямую связанным со store.
+
+---
+
+#### Базовый паттерн (рекомендуемый)
+
+**1️⃣ Начальные значения из store**
+
+```js
+const profile = useSelector(selectProfile);
+
+const form = useForm({
+  defaultValues: profile
+});
+```
+
+---
+
+**2️⃣ Редактирование — локально**
+
+* useState / React Hook Form / Formik
+* без диспатча на каждый ввод
+
+---
+
+**3️⃣ Submit → обновление store**
+
+```js
+const dispatch = useDispatch();
+
+const onSubmit = data => {
+  dispatch(updateProfile(data));
+};
+```
+
+---
+
+#### Почему не писать каждое изменение в Redux
+
+Плохо:
+
+```
+onChange → dispatch → reducer → store → re-render
+```
+
+Проблемы:
+
+* много лишних обновлений
+* лаги на больших формах
+* шум в devtools
+* сложнее отмена изменений
+
+---
+
+#### Zustand интеграция
+
+Zustand легче — можно гибче.
+
+**Вариант: snapshot → форма**
+
+```js
+const user = useUserStore(s => s.user);
+```
+
+Submit:
+
+```js
+updateUser(data);
+```
+
+---
+
+**Редко допустимо:** писать прямо в Zustand при вводе
+(если форма = live-config UI), но с селекторами:
+
+```js
+useUserStore(s => s.setEmail)
+```
+
+---
+
+#### RTK Query интеграция
+
+RTK Query — это слой серверных данных.
+
+**1️⃣ Prefill формы**
+
+```js
+const { data } = useGetUserQuery(id);
+```
+
+---
+
+**2️⃣ Submit → mutation**
+
+```js
+const [updateUser] = useUpdateUserMutation();
+
+onSubmit = data => updateUser(data);
+```
+
+---
+
+**3️⃣ Reset после загрузки**
+
+```js
+useEffect(() => {
+  if (data) reset(data);
+}, [data]);
+```
+
+---
+
+#### Autosave-паттерн
+
+Если нужен autosave:
+
+* debounce submit
+* отправка mutation
+* локальный dirty state
+* не диспатчить каждый символ
+
+---
+
+#### Когда форма = глобальное состояние
+
+Оправдано если:
+
+* multi-step wizard между страницами
+* форма — часть глобального workflow
+* совместное редактирование
+* черновики между маршрутами
+
+Тогда:
+
+* reducer формы
+* slice формы
+* или Zustand store формы
+
+---
+
+#### Нюансы для собеса
+
+* форма — локальное состояние по умолчанию
+* store — для initial + submit
+* не диспатчить onChange
+* RTK Query — для загрузки/мутаций
+* reset при приходе данных
+* autosave через debounce
+
+---
+
+#### Итоговая выжимка
+
+* данные формы — локально
+* initialValues из store
+* submit → dispatch / mutation
+* не обновлять Redux на каждый ввод
+* RTK Query — для fetch/mutate
+* глобальная форма только для wizard/черновиков
+
+### Как реализовать optimistic UI при отправке формы?
+
+**Шпаргалка:**
+
+> Optimistic UI — это когда интерфейс обновляется сразу при submit, не дожидаясь ответа сервера. Мы временно применяем изменения локально, а при ошибке — откатываем назад.
+
+---
+
+#### Базовый алгоритм
+
+1️⃣ сохранить предыдущее состояние
+2️⃣ сразу применить новое в UI
+3️⃣ отправить запрос
+4️⃣ если успех — подтвердить
+5️⃣ если ошибка — откатить
+
+---
+
+#### Простой пример с локальным state
+
+```js
+const handleSubmit = async (data) => {
+  const prev = items;
+
+  setItems(p => [...p, data]); // optimistic update
+
+  try {
+    await api.createItem(data);
+  } catch {
+    setItems(prev); // rollback
+  }
+};
+```
+
+---
+
+#### Важно: временные id
+
+Если создаём запись:
+
+```js
+const tempId = crypto.randomUUID();
+```
+
+* добавляем в UI с tempId
+* после ответа заменяем на серверный id
+
+---
+
+#### React Query (TanStack Query) — правильный способ
+
+```js
+useMutation({
+  mutationFn: createPost,
+
+  onMutate: async (newPost) => {
+    await queryClient.cancelQueries(['posts']);
+
+    const prev = queryClient.getQueryData(['posts']);
+
+    queryClient.setQueryData(['posts'], old => [...old, newPost]);
+
+    return { prev };
+  },
+
+  onError: (err, newPost, ctx) => {
+    queryClient.setQueryData(['posts'], ctx.prev);
+  },
+
+  onSettled: () => {
+    queryClient.invalidateQueries(['posts']);
+  }
+});
+```
+
+---
+
+#### RTK Query optimistic update
+
+Через `updateQueryData`:
+
+```js
+api.util.updateQueryData('getPosts', undefined, draft => {
+  draft.push(newPost);
+});
+```
+
+* rollback через patchResult.undo()
+
+---
+
+#### UX детали
+
+* показать pending-состояние записи
+* дизейбл submit кнопки
+* пометить “saving…”
+* блокировать повторную отправку
+
+---
+
+#### Когда optimistic UI опасен
+
+Не стоит делать, если:
+
+* операция может быть отклонена бизнес-логикой
+* сложные серверные вычисления
+* финансовые операции
+* конфликтующие изменения
+
+---
+
+#### Нюансы для собеса
+
+* обновляем UI до ответа сервера
+* обязательно хранить prev state
+* нужен rollback
+* temp id для create
+* библиотеки данных имеют встроенную поддержку
+* invalidate после подтверждения
+
+---
+
+#### Итоговая выжимка
+
+* optimistic = мгновенное обновление UI
+* сначала локальное обновление
+* затем запрос
+* при ошибке — rollback
+* temp id для новых сущностей
+* React Query / RTK Query имеют готовые механизмы
+* улучшает perceived performance
+
+### Как обрабатывать загрузку файлов в форме: превью, ограничения размера и типа, прогресс загрузки?
+
+**Шпаргалка:**
+
+> Файлы берут из `<input type="file">`, валидируют размер и MIME-тип до отправки, делают превью через URL.createObjectURL/FileReader, прогресс — через XMLHttpRequest или axios onUploadProgress. Файл держат в state или form-lib.
+
+---
+
+#### Получение файла из input
+
+```jsx
+<input type="file" onChange={handleFile} />
+```
+
+```js
+function handleFile(e) {
+  const file = e.target.files[0];
+  setFile(file);
+}
+```
+
+Важно: file input всегда **uncontrolled** — value не контролируется React.
+
+---
+
+#### Проверка типа файла
+
+```js
+const allowed = ['image/png', 'image/jpeg'];
+
+if (!allowed.includes(file.type)) {
+  setError('Только PNG/JPEG');
+  return;
+}
+```
+
+Можно также проверять расширение, но MIME надежнее.
+
+---
+
+#### Проверка размера
+
+```js
+const maxSize = 2 * 1024 * 1024;
+
+if (file.size > maxSize) {
+  setError('Файл больше 2MB');
+  return;
+}
+```
+
+Делают до загрузки — экономит трафик.
+
+---
+
+#### Превью изображения
+
+**Быстро и дешево — ObjectURL**
+
+```js
+const preview = URL.createObjectURL(file);
+setPreview(preview);
+```
+
+Очистка:
+
+```js
+useEffect(() => {
+  return () => URL.revokeObjectURL(preview);
+}, [preview]);
+```
+
+---
+
+**Альтернатива — FileReader**
+
+```js
+const reader = new FileReader();
+reader.onload = e => setPreview(e.target.result);
+reader.readAsDataURL(file);
+```
+
+---
+
+#### Отправка файла
+
+```js
+const fd = new FormData();
+fd.append('file', file);
+
+fetch('/upload', {
+  method: 'POST',
+  body: fd
+});
+```
+
+Не ставить Content-Type вручную — браузер сам добавит boundary.
+
+---
+
+#### Прогресс загрузки (axios)
+
+```js
+axios.post('/upload', fd, {
+  onUploadProgress: (e) => {
+    const percent = Math.round(
+      (e.loaded * 100) / e.total
+    );
+    setProgress(percent);
+  }
+});
+```
+
+---
+
+#### Прогресс через XMLHttpRequest
+
+```js
+const xhr = new XMLHttpRequest();
+
+xhr.upload.onprogress = (e) => {
+  setProgress(e.loaded / e.total * 100);
+};
+```
+
+fetch стандартно не даёт upload progress.
+
+---
+
+#### Интеграция с form libraries
+
+**React Hook Form**
+
+```js
+<input type="file" {...register('file')} />
+```
+
+или Controller для кастомных upload-компонентов.
+
+---
+
+#### UX и безопасность
+
+* accept в input:
+
+```html
+<input type="file" accept="image/*" />
+```
+
+* показывать имя и размер
+* кнопка отмены загрузки (abort)
+* сервер тоже валидирует тип и размер
+* не доверять только клиентской проверке
+
+---
+
+#### Нюансы для собеса
+
+* file input — uncontrolled
+* validate type + size до upload
+* preview через createObjectURL
+* revokeObjectURL обязателен
+* upload через FormData
+* progress — axios/XHR
+* серверная валидация обязательна
+
+---
+
+#### Итоговая выжимка
+
+* input type=file → File объект
+* проверка MIME и размера
+* preview — createObjectURL
+* cleanup URL.revokeObjectURL
+* отправка через FormData
+* progress через axios/XHR
+* fetch без upload-progress
+* сервер валидирует повторно
+
+### Как избежать потери данных формы при смене маршрута или размонтировании компонента?
+
+**Шпаргалка:**
+
+> Данные формы нужно вынести из локального state компонента: в Context / store / router state / storage. Дополнительно — предупреждать пользователя при уходе со страницы (navigation guard).
+
+---
+
+#### Почему данные теряются
+
+При смене маршрута компонент размонтируется →
+локальный state (`useState`, form-lib state) удаляется.
+
+Решение — хранить данные **выше уровня страницы**.
+
+---
+
+#### Способ 1 — Context формы
+
+Подходит для wizard и длинных форм.
+
+```js
+<FormDraftProvider>
+  <FormPage />
+</FormDraftProvider>
+```
+
+Данные живут, пока жив провайдер, а не страница.
+
+---
+
+#### Способ 2 — глобальный store (Redux / Zustand)
+
+```js
+dispatch(saveDraft(formData))
+```
+
+Используют когда:
+
+* многошаговая форма
+* переходы между страницами
+* нужен черновик
+
+---
+
+#### Способ 3 — localStorage / sessionStorage
+
+Автосохранение:
+
+```js
+useEffect(() => {
+  localStorage.setItem('draft', JSON.stringify(form));
+}, [form]);
+```
+
+Восстановление:
+
+```js
+const saved = JSON.parse(localStorage.getItem('draft'));
+```
+
+Часто делают с debounce.
+
+---
+
+#### Способ 4 — Router state (короткие переходы)
+
+```js
+navigate('/next', { state: formData })
+```
+
+```js
+const { state } = useLocation();
+```
+
+Подходит только для соседних переходов, не для reload.
+
+---
+
+#### Способ 5 — React Hook Form reset + внешние данные
+
+```js
+useEffect(() => {
+  reset(draftData);
+}, [draftData]);
+```
+
+---
+
+#### Предупреждение при уходе со страницы
+
+React Router:
+
+```js
+useBlocker(isDirty)
+```
+
+или browser guard:
+
+```js
+window.onbeforeunload = () => true;
+```
+
+Показывает confirm при закрытии/переходе.
+
+---
+
+#### Практический production-паттерн
+
+Обычно комбинируют:
+
+* draft в store или storage
+* debounce autosave
+* dirty flag
+* navigation guard
+* восстановление при входе
+
+---
+
+#### Нюансы для собеса
+
+* локальный state теряется при unmount
+* хранить выше: context/store
+* autosave в storage
+* reset формы при восстановлении
+* navigation guard при dirty
+* router state — временное решение
+
+---
+
+#### Итоговая выжимка
+
+* вынести state формы выше страницы
+* Context или глобальный store
+* autosave в localStorage
+* восстановление через reset
+* debounce сохранения
+* блокировать уход при dirty
+* router state — только для коротких переходов
+
+### Как реализовать reset формы и частичный reset отдельных полей?
+
+**Шпаргалка:**
+
+> Полный reset — вернуть форму к initialValues. Частичный reset — обновить только нужные поля. Делают через setState/reset API form-библиотеки или хранение начального состояния отдельно.
+
+---
+
+#### Полный reset через useState
+
+Храним initial отдельно:
+
+```js
+const initial = { name: '', email: '' };
+const [form, setForm] = useState(initial);
+```
+
+Reset:
+
+```js
+setForm(initial);
+```
+
+Если initial приходит с сервера — держать в ref/state.
+
+---
+
+#### Частичный reset поля
+
+```js
+setForm(prev => ({
+  ...prev,
+  email: ''
+}));
+```
+
+Или к начальному значению:
+
+```js
+setForm(prev => ({
+  ...prev,
+  email: initial.email
+}));
+```
+
+---
+
+#### Reset в React Hook Form
+
+**Полный reset**
+
+```js
+reset();
+```
+
+или с новыми значениями:
+
+```js
+reset(newValues);
+```
+
+---
+
+**Частичный reset**
+
+```js
+resetField('email');
+```
+
+С опциями:
+
+```js
+resetField('email', {
+  keepError: false,
+  keepDirty: false
+});
+```
+
+---
+
+#### Reset в Formik
+
+**Полный**
+
+```js
+formik.resetForm();
+```
+
+или:
+
+```js
+resetForm({ values: newValues });
+```
+
+---
+
+**Частичный**
+
+```js
+setFieldValue('email', '');
+setFieldTouched('email', false);
+setFieldError('email', undefined);
+```
+
+---
+
+#### Важно: reset служебных флагов
+
+Настоящий reset — это не только values:
+
+* touched
+* dirty
+* errors
+* submitCount
+
+Form libs делают это автоматически — вручную нужно не забывать.
+
+---
+
+#### Reset после submit
+
+Частый паттерн:
+
+```js
+onSubmit = (data) => {
+  save(data);
+  reset();
+}
+```
+
+Или reset к серверным данным после успешного ответа.
+
+---
+
+#### Нюансы для собеса
+
+* initialValues хранить отдельно
+* reset = возврат к initial
+* partial reset через patch state
+* form libs имеют resetField
+* сбрасывать errors/touched тоже важно
+* reset после успешного submit
+
+---
+
+#### Итоговая выжимка
+
+* полный reset → initialValues
+* partial → обновить конкретные поля
+* хранить initial отдельно
+* RHF: reset / resetField
+* Formik: resetForm / setFieldValue
+* сбрасывать не только values, но и meta-состояние
+
+### Как управлять фокусом и ошибками для доступности: автофокус на первом невалидном поле?
+
+**Шпаргалка:**
+
+> Для доступности важно, чтобы после сабмита или валидации фокус переходил на первое поле с ошибкой, а ошибки были связаны с полем через `aria-invalid` и `aria-describedby`.
+
+---
+
+#### Базовая идея
+
+1️⃣ Валидируем форму
+2️⃣ Находим первое поле с ошибкой
+3️⃣ Ставим на него фокус через `ref.focus()`
+4️⃣ Помечаем `aria-invalid="true"` и подключаем `aria-describedby` к тексту ошибки
+
+---
+
+#### Пример с React Hook Form
+
+```js
+const { register, handleSubmit, formState: { errors } } = useForm();
+const refs = useRef({});
+
+const onSubmit = data => {
+  // обработка
+};
+
+useEffect(() => {
+  const firstError = Object.keys(errors)[0];
+  if (firstError) {
+    refs.current[firstError]?.focus();
+  }
+}, [errors]);
+```
+
+```jsx
+<input
+  {...register('email', { required: 'Email обязателен' })}
+  ref={el => refs.current.email = el}
+  aria-invalid={!!errors.email}
+  aria-describedby="email-error"
+/>
+<p id="email-error">{errors.email?.message}</p>
+```
+
+---
+
+#### Важно: ARIA атрибуты
+
+* `aria-invalid="true"` → screen reader понимает, что поле невалидно
+* `aria-describedby="#errorId"` → читает текст ошибки
+* `<label>` всегда привязан к input через `htmlFor`
+
+---
+
+#### Автофокус на первом поле
+
+* Лучше делать **после валидации / submit**
+* Не делать на каждом рендере, только при ошибках
+* Можно использовать `useEffect` с `errors`
+
+---
+
+#### Formik вариант
+
+```js
+formik.errors.email && formik.touched.email && emailRef.current.focus();
+```
+
+---
+
+#### UX советы
+
+* показывать все ошибки визуально и через aria
+* не прыгать фокусом при вводе, только на submit
+* поддерживать клавиатурную навигацию
+* для multi-step wizard — фокус на первый ошибочный шаг
+
+---
+
+#### Нюансы для собеса
+
+* первый invalid field → focus
+* aria-invalid + aria-describedby для ошибок
+* useRef для полей
+* RHF / Formik позволяют подписаться на ошибки
+* фокус только при submit, а не на каждый onChange
+
+---
+
+#### Итоговая выжимка
+
+* focus на первом поле с ошибкой после submit
+* aria-invalid=true для screen reader
+* aria-describedby для текста ошибки
+* useRef для доступа к input
+* не менять фокус на каждый ввод
+* multi-step wizard → фокус на первый ошибочный шаг
+
+### Как объявлять и озвучивать ошибки формы для screen reader (aria-live, aria-describedby)?
+
+**Шпаргалка:**
+
+> Ошибки формы должны быть связаны с полем через `aria-describedby`, а динамические изменения — озвучиваться через `aria-live`. Это обеспечивает доступность для screen reader без изменения фокуса.
+
+---
+
+#### Связываем поле с ошибкой
+
+```jsx
+<input
+  id="email"
+  aria-describedby="email-error"
+  aria-invalid={!!errors.email}
+  {...register('email', { required: 'Email обязателен' })}
+/>
+
+<p id="email-error">{errors.email?.message}</p>
+```
+
+* `aria-describedby="email-error"` → screen reader читает текст ошибки
+* `aria-invalid="true"` → сигнализирует, что поле невалидно
+
+---
+
+#### aria-live для динамических сообщений
+
+Если ошибка появляется после валидации (submit):
+
+```jsx
+<p id="email-error" role="alert" aria-live="assertive">
+  {errors.email?.message}
+</p>
+```
+
+* `role="alert"` или `aria-live="assertive"` → screen reader озвучит сразу
+* `aria-live="polite"` — озвучит, но не прерывая текущий поток речи
+
+---
+
+#### Практический паттерн
+
+1. На input: `aria-invalid`, `aria-describedby`
+2. Ошибка в `p` с id
+3. Добавить `aria-live` или `role="alert"` для динамических ошибок
+4. Фокус на первом поле с ошибкой (опционально)
+
+```jsx
+<input
+  id="password"
+  aria-describedby="password-error"
+  aria-invalid={!!errors.password}
+  {...register('password', { minLength: 6 })}
+ />
+
+<p id="password-error" role="alert" aria-live="assertive">
+  {errors.password?.message}
+</p>
+```
+
+---
+
+#### Дополнительно
+
+* Можно использовать один контейнер для всех ошибок с `aria-live="assertive"`
+* Не дублировать ошибки: только для screen reader
+* Лейблы (`<label>`) всегда должны быть привязаны к полю через `htmlFor`
+
+---
+
+#### Нюансы для собеса
+
+* `aria-describedby` связывает input с сообщением об ошибке
+* `aria-invalid="true"` сигнализирует о невалидности
+* `aria-live` / `role="alert"` → озвучивание динамических ошибок
+* focus на первом ошибочном поле повышает UX
+* можно использовать один live-region для всех ошибок
+
+---
+
+#### Итоговая выжимка
+
+* input → `aria-invalid`, `aria-describedby`
+* текст ошибки → `<p>` с id
+* динамика → `aria-live="assertive"` или `role="alert"`
+* focus на первом невалидном поле (по желанию)
+* обеспечивает доступность для screen reader
+
+### Какие стратегии тестирования форм вы используете (React Testing Library, user-event)? Что именно стоит тестировать?
+
+**Шпаргалка:**
+
+> Тесты форм — это проверка поведения для пользователя: ввод, валидация, отправка, ошибки, фокус, disabled/readonly состояния. Используем React Testing Library + `user-event` для имитации реального взаимодействия.
+
+---
+
+#### Основные стратегии
+
+1️⃣ **Поведение, а не реализация**
+
+* тестируем что пользователь видит и может сделать
+* не трогаем внутренние useState/refs
+
+---
+
+2️⃣ **User-event для интеракций**
+
+```js
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+const user = userEvent.setup();
+
+await user.type(input, 'hello');
+await user.click(submitButton);
+```
+
+* ввод текста
+* чекбоксы, radio, select
+* кнопки, submit, reset
+
+---
+
+3️⃣ **Проверка валидации**
+
+* required поля
+* min/max length
+* async validation (debounce)
+* отображение ошибок (`aria-live` или text)
+
+```js
+expect(await screen.findByText('Email обязателен')).toBeInTheDocument();
+```
+
+---
+
+4️⃣ **Проверка submit**
+
+* успешная отправка → callback / API вызов
+* preventDefault
+* disabled кнопка при invalid
+
+---
+
+5️⃣ **Фокус и доступность**
+
+* focus на первом невалидном поле
+* aria-invalid/aria-describedby
+* keyboard navigation (tab)
+
+```js
+expect(document.activeElement).toBe(emailInput);
+```
+
+---
+
+6️⃣ **Динамические поля**
+
+* добавление/удаление в FieldArray
+* conditional fields
+* multi-step wizard state preservation
+
+---
+
+7️⃣ **Асинхронные сценарии**
+
+* debounce validation
+* optimistic updates
+* file upload + progress
+
+---
+
+#### Пример теста React Hook Form
+
+```js
+test('shows error on empty submit', async () => {
+  render(<MyForm />);
+  const submit = screen.getByRole('button', { name: /submit/i });
+  await user.click(submit);
+  expect(await screen.findByText(/required/i)).toBeInTheDocument();
+});
+```
+
+---
+
+#### Дополнительные советы
+
+* избегать тестирования внутренних state / implementation
+* focus на user flows
+* snapshot только для визуального контроля
+* mock api для submit / async validation
+
+---
+
+#### Нюансы для собеса
+
+* тестируем **поведение пользователя**, а не React internals
+* user-event → имитация реального ввода
+* проверка ошибок, disabled, фокуса, submit
+* динамика формы (conditional/multi-step)
+* async validation + debounce
+
+---
+
+#### Итоговая выжимка
+
+* React Testing Library + user-event
+* тестируем: ввод, submit, ошибки, disabled, фокус
+* async validation + debounce
+* динамические поля / wizard
+* avoid implementation details, focus on UX
+
+### Как оптимизировать производительность формы с “тяжелыми” кастомными контролами (дата-пикеры, редакторы, маски ввода)?
+
+**Шпаргалка:**
+
+> Тяжелые кастомные контролы часто вызывают лишние ререндеры всей формы. Оптимизация: изолировать их, использовать `React.memo`, контролируемые подписки на конкретные поля и минимизировать обновления state при вводе.
+
+---
+
+#### Основные стратегии
+
+1️⃣ **Разделение на отдельные компоненты**
+
+* каждый кастомный контрол — отдельный компонент
+* обернуть в `React.memo`
+
+```js
+const DatePickerField = React.memo(({ value, onChange }) => {
+  return <DatePicker selected={value} onChange={onChange} />;
+});
+```
+
+* гарантирует, что rerender будет только при изменении props
+
+---
+
+2️⃣ **Использовать form-library с подписками (RHF)**
+
+* React Hook Form → subscription model
+* только изменённый контрол перерендерится
+
+```js
+<Controller
+  name="date"
+  control={control}
+  render={({ field }) => <DatePickerField {...field} />}
+/>
+```
+
+* без лишних перерендеров всей формы
+
+---
+
+3️⃣ **Минимизировать state внутри тяжелого компонента**
+
+* внутрь heavy-control можно вынести локальный state для быстрого UI
+* глобальный formState обновлять только при commit (blur/submit)
+
+---
+
+4️⃣ **Debounce и throttle для частых событий**
+
+* input с маской / текстовый редактор → debounce `onChange`
+* уменьшает частоту обновления формы
+
+```js
+const debouncedChange = useCallback(debounce(onChange, 200), []);
+```
+
+---
+
+5️⃣ **Lazy-load и динамический импорт**
+
+* для редакторов (Quill, CKEditor) / сложных date-picker
+* `React.lazy` + `Suspense` → загружаются только при первом рендере поля
+
+---
+
+6️⃣ **Избегать inline-колбеков**
+
+* inline функции создают новые ссылки → ререндер child
+* использовать `useCallback` для onChange
+
+```js
+const handleChange = useCallback((val) => setValue('date', val), [setValue]);
+```
+
+---
+
+7️⃣ **Virtualization при списках полей**
+
+* если динамический массив (FieldArray) → использовать `react-window` или `useFieldArray` в RHF
+* heavy control рендерится только видимый
+
+---
+
+#### Нюансы для собеса
+
+* тяжелые контролы → отдельные memo-компоненты
+* RHF / Controller → подписки на конкретные поля
+* debounce input
+* lazy-load для больших библиотек
+* useCallback для колбеков
+* локальный state внутри heavy control, глобальный только при commit
+
+---
+
+#### Итоговая выжимка
+
+* heavy control → отдельный компонент + React.memo
+* минимизировать setState для формы
+* RHF subscription → перерендер только изменённого поля
+* debounce/throttle для частых событий
+* lazy-load больших библиотек
+* useCallback для функций, avoid inline props
+
 
 
 
@@ -4621,3 +6891,659 @@ const themeValue = useMemo(() => ({ mode, toggle }), [mode]);
 * Мемоизируйте `value` провайдера через `useMemo`.
 * Используйте несколько провайдеров для разных областей приложения.
 * Для сложных случаев — контекст-селекторы или локальный state компонентов вместо глобального.
+
+### Что такое ре-рендер компонента в React и какие основные причины его вызывают?
+
+**Шпаргалка:**
+
+> Ре-рендер — это повторный вызов функции компонента для пересчёта JSX. Он происходит, когда меняются state, props, context или родитель перерисовывается.
+
+---
+
+#### Что именно происходит при ре-рендере
+
+* React снова вызывает функцию компонента
+* строится новый Virtual DOM
+* сравнивается со старым (diff)
+* применяются только реальные изменения в DOM
+
+Важно: вызов компонента ≠ всегда изменение DOM.
+
+---
+
+#### Основные причины ре-рендера
+
+**1️⃣ Изменение state**
+
+```js
+setCount(c => c + 1);
+```
+
+Самая частая причина — любое обновление state.
+
+---
+
+**2️⃣ Изменение props**
+
+* родитель передал новые данные
+* даже новая ссылка на объект/функцию → уже “новые props”
+
+---
+
+**3️⃣ Ре-рендер родителя**
+
+* по умолчанию дочерние компоненты тоже вызываются снова
+* даже если их props “логически” те же
+
+---
+
+**4️⃣ Изменение context**
+
+* любое изменение value у Provider
+* перерендерятся все подписчики контекста
+
+---
+
+**5️⃣ Изменение key**
+
+```jsx
+<Component key={id} />
+```
+
+* React считает это новым экземпляром
+* старый размонтируется, новый монтируется
+
+---
+
+#### Что НЕ вызывает ре-рендер
+
+* изменение ref (`ref.current`)
+* изменение обычной переменной
+* мутация объекта без setState
+
+---
+
+#### Нюансы для собеса
+
+* ре-рендер = повторный вызов функции компонента
+* триггеры: state / props / parent / context
+* parent → children по умолчанию
+* новая ссылка в props = новый ререндер
+* key меняет жизненный цикл
+
+---
+
+#### Итоговая выжимка
+
+* ре-рендер — повторный вызов компонента
+* происходит при изменении state
+* при новых props
+* при ререндере родителя
+* при обновлении context
+* key → полный remount компонента
+
+### Как изменение состояния в родительском компоненте влияет на дочерние?
+
+**Шпаргалка:**
+
+> При изменении state родителя он ре-рендерится, и по умолчанию React повторно вызывает все его дочерние компоненты — даже если их props не изменились.
+
+---
+
+#### Что происходит при обновлении state родителя
+
+```js
+setCount(c => c + 1);
+```
+
+React:
+
+1️⃣ заново вызывает родительский компонент
+2️⃣ заново строит его JSX
+3️⃣ повторно вызывает все дочерние компоненты в дереве
+
+Это стандартное поведение reconciliation.
+
+---
+
+#### Даже если props не менялись
+
+```jsx
+<Child />
+```
+
+Child всё равно будет вызван снова, потому что:
+
+* родитель перерендерился
+* child участвует в новом render tree
+
+Но DOM может не измениться — diff это отфильтрует.
+
+---
+
+#### Когда дочерний **не** перерендерится
+
+Если применена мемоизация:
+
+```js
+export default React.memo(Child);
+```
+
+Тогда:
+
+* React сравнит props (shallow compare)
+* если они равны → вызова Child не будет
+
+---
+
+#### Частая ловушка — новые ссылки в props
+
+```jsx
+<Child onClick={() => doSomething()} />
+```
+
+Каждый рендер → новая функция → props изменились → memo не спасёт.
+
+Решение:
+
+```js
+const handleClick = useCallback(..., []);
+```
+
+---
+
+#### Context усиливает эффект
+
+Если родитель — Provider:
+
+* изменение `value` → все consumers перерендерятся
+* даже глубоко вложенные
+
+---
+
+#### Нюансы для собеса
+
+* parent state change → parent rerender
+* по умолчанию → rerender всех children
+* props могут быть теми же — вызов всё равно будет
+* React.memo останавливает child rerender
+* новые ссылки ломают мемоизацию
+* context value change → массовые rerender
+
+---
+
+#### Итоговая выжимка
+
+* изменение state родителя → его rerender
+* все дети вызываются снова
+* даже без изменения props
+* React.memo может остановить
+* новые ссылки в props триггерят rerender
+* context обновляет всех подписчиков
+
+### Как определить, что компонент рендерится слишком часто?
+
+**Шпаргалка:**
+
+> Слишком частые ререндеры выявляют через React DevTools Profiler, why-did-you-render и логирование рендеров. Признаки — лаги UI, задержки ввода и повторные вызовы компонента без видимых причин.
+
+---
+
+#### Главный инструмент — React DevTools Profiler
+
+Profiler показывает:
+
+* сколько раз рендерился компонент
+* длительность рендера
+* кто вызвал ререндер (parent / props / state)
+* “flamegraph” дерева
+
+Что искать:
+
+* компонент рендерится при каждом вводе в соседнем поле
+* тяжёлый компонент в каждом коммите
+* одинаковые props, но есть rerender
+
+---
+
+#### Быстрый способ — console лог
+
+```js
+console.log('Render: UserCard');
+```
+
+или
+
+```js
+useEffect(() => {
+  console.count('UserCard renders');
+});
+```
+
+Подходит для локальной диагностики.
+
+---
+
+#### why-did-you-render
+
+Библиотека для dev-режима:
+
+* показывает лишние ререндеры
+* говорит какие props изменились по ссылке
+* полезно для memo-компонентов
+
+Типовой вывод:
+
+```
+re-rendered because prop "onClick" changed (new reference)
+```
+
+---
+
+#### Косвенные признаки в UI
+
+* лаг при вводе текста
+* тормозящий скролл
+* дергающиеся анимации
+* задержка клика
+* тяжелые списки “мигают”
+
+---
+
+#### Проверка через memo
+
+Временный тест:
+
+```js
+export default React.memo(Component);
+```
+
+Если лаг исчез → проблема в лишних ререндерах.
+
+---
+
+#### Проверка props-ссылок
+
+Частая причина:
+
+* inline функции
+* новые объекты
+* новые массивы
+
+```jsx
+<Comp style={{ color: 'red' }} /> // новая ссылка каждый рендер
+```
+
+---
+
+#### Что смотреть в Profiler особенно
+
+* commit count
+* render duration
+* ranked chart
+* props change reason
+* render vs actual DOM change
+
+---
+
+#### Выжимка (как отвечать на собеседовании)
+
+* главный инструмент — **React DevTools Profiler**
+* анализировать: **render count** и **render duration**
+* быстрый локальный тест — `console.log` / `console.count`
+* для поиска лишних ререндеров — **why-did-you-render**
+* `React.memo` — удобный **диагностический тест**
+* частая причина — **новые ссылки** (inline функции, объекты, массивы)
+* косвенные признаки — **лаги UI и задержки ввода**
+
+### Что делает React.memo и в каком случае он помогает оптимизировать компонент?
+
+**Шпаргалка:**
+
+> `React.memo` — это HOC-обёртка для функционального компонента, которая предотвращает повторный ререндер, если его props не изменились (по поверхностному сравнению). Помогает снизить лишние рендеры в дереве.
+
+---
+
+#### Пример
+
+```javascript
+import React from 'react';
+
+const UserCard = React.memo(function UserCard({ name }) {
+  console.log('render UserCard');
+  return <div>{name}</div>;
+});
+```
+
+Родитель ререндерится:
+
+```javascript
+function Parent({ count }) {
+  return (
+    <>
+      <span>{count}</span>
+      <UserCard name="Alex" />
+    </>
+  );
+}
+```
+
+`UserCard` **не будет ререндериться**, пока `name` не изменится.
+
+---
+
+#### Как это работает
+
+* `React.memo` кэширует результат рендера компонента
+* при новом рендере родителя делает **shallow compare props**
+* если props равны → возвращает предыдущий результат
+* если props изменились → компонент ререндерится
+* работает только для **функциональных компонентов**
+
+Можно задать свой comparator:
+
+```javascript
+React.memo(Component, (prev, next) => {
+  return prev.id === next.id;
+});
+```
+
+---
+
+#### Нюансы и выжимка для собеса
+
+* предотвращает лишние рендеры по props
+* сравнение — поверхностное (shallow)
+* эффективен для “тяжёлых” компонентов
+* особенно полезен в списках
+* бесполезен, если props всегда новые (новые объекты / функции)
+* часто требует `useCallback` и `useMemo` для стабильных ссылок
+* это **микро-оптимизация**, применять после профилирования
+* аналог классового `PureComponent` для функций
+
+### В чем назначение useMemo и когда его имеет смысл использовать?
+
+**Шпаргалка:**
+
+> `useMemo` — хук для мемоизации значения. Он вычисляет результат функции и запоминает его, чтобы повторно использовать между рендерами, если зависимости не изменились. Помогает оптимизировать дорогостоящие вычисления и стабилизировать ссылки на объекты/массивы.
+
+---
+
+#### Пример
+
+```javascript
+import { useMemo, useState } from 'react';
+
+function ExpensiveComponent({ num }) {
+  const [count, setCount] = useState(0);
+
+  // дорогое вычисление
+  const squared = useMemo(() => {
+    console.log('calculating...');
+    return num * num;
+  }, [num]);
+
+  return (
+    <>
+      <div>Squared: {squared}</div>
+      <button onClick={() => setCount(c => c + 1)}>Re-render {count}</button>
+    </>
+  );
+}
+```
+
+*При нажатии на кнопку `ExpensiveComponent` ререндерится, но `squared` пересчитывается только если `num` изменился.*
+
+---
+
+#### Как это работает
+
+* `useMemo(fn, deps)` сохраняет результат `fn()`
+* при следующем рендере сравнивает `deps`:
+
+  * если **не изменились** → возвращает сохранённое значение
+  * если **изменились** → вызывает `fn()` снова
+* помогает избежать повторных дорогостоящих вычислений
+* полезно для **создания стабильных ссылок на объекты/массивы**, чтобы не ломать `React.memo` или зависимости `useEffect`
+
+---
+
+#### Нюансы и выжимка для собеса
+
+* мемоизирует **значение**, а не компонент (для компонента есть `React.memo`)
+* dependencies обязаны быть полными — иначе баги
+* не стоит мемоизировать всё подряд — это тоже накладные расходы
+* часто используют для:
+
+  * дорогих вычислений
+  * стабильных объектов/массивов для props
+  * предотвращения лишнего рендера дочерних `React.memo`
+* микрооптимизация — применять только там, где есть измеримый профит
+* аналогично `useCallback`, но возвращает **значение**, а не функцию
+
+### Для чего нужен useCallback и как он связан с оптимизацией дочерних компонентов
+
+**Шпаргалка:**
+
+> `useCallback` — хук для мемоизации функции. Он возвращает **стабильную ссылку на функцию** между рендерами, пока не изменятся зависимости. Это важно для оптимизации дочерних компонентов, обёрнутых в `React.memo`, чтобы они не ререндерились без необходимости.
+
+---
+
+#### Пример
+
+```javascript
+import { useState, useCallback } from 'react';
+
+const Button = React.memo(({ onClick, label }) => {
+  console.log('Button render');
+  return <button onClick={onClick}>{label}</button>;
+});
+
+function Parent() {
+  const [count, setCount] = useState(0);
+
+  // без useCallback → каждый рендер создаёт новую функцию
+  const increment = useCallback(() => {
+    setCount(c => c + 1);
+  }, []);
+
+  return (
+    <>
+      <div>Count: {count}</div>
+      <Button onClick={increment} label="Increment" />
+    </>
+  );
+}
+```
+
+*Без `useCallback` дочерний `Button` ререндерился бы при каждом рендере родителя, даже если props `label` не менялся.*
+
+---
+
+#### Как это работает
+
+* `useCallback(fn, deps)` возвращает **мемоизированную функцию**
+* если `deps` не изменились → возвращается та же ссылка
+* если `deps` изменились → создаётся новая функция
+* важно для **дочерних `React.memo` компонентов**, чтобы props оставались одинаковыми между рендерами
+
+---
+
+#### Нюансы и выжимка для собеса
+
+* мемоизация нужна **только**, когда функция передаётся в дочерние компоненты или используется в зависимостях `useEffect`/`useMemo`
+* без useCallback `React.memo` часто бессилен, потому что новая функция = новый prop
+* не стоит мемоизировать все функции без нужды — это накладные расходы
+* часто комбинируют с `useMemo`, чтобы стабилизировать объекты/массивы в props
+* микрооптимизация — сначала профилируем, потом применяем
+
+### Когда мемоизация (`useMemo` / `useCallback`) может быть избыточной
+
+**Шпаргалка:**
+
+> Мемоизация нужна для **дорогих вычислений** (`useMemo`) или для стабилизации ссылок на функции/объекты (`useCallback`), чтобы избежать лишних ререндеров дочерних `React.memo` компонентов. Она становится избыточной, если:
+
+* функция или вычисление **легкое** — создаётся быстро, без нагрузки на CPU
+* дочерний компонент **не обёрнут в React.memo** или не зависит от мемоизированного значения
+* ререндер родителя **редкий** и не создаёт видимых лагов
+* мемоизация усложняет код и ухудшает читаемость без реальной выгоды
+
+---
+
+#### Примеры избыточности
+
+```javascript
+const double = useMemo(() => x * 2, [x]); // избыточно, если x просто число
+```
+
+```javascript
+const handleClick = useCallback(() => console.log('clicked'), []); 
+// избыточно, если Button не memo или рендер родителя редкий
+```
+
+*В этих случаях простая функция без мемоизации не создаст проблем производительности.*
+
+---
+
+#### Нюансы и выжимка для собеса
+
+* мемоизация = **инструмент оптимизации**, а не правило по умолчанию
+* использовать только для:
+
+  * **дорогих вычислений** (`useMemo`)
+  * **стабильных ссылок** для `React.memo` дочерних компонентов (`useCallback`)
+* лёгкие вычисления, редкие ререндеры → мемоизация лишняя
+* злоупотребление усложняет код и иногда снижает производительность
+
+### Зачем нужен `key` при рендеринге списков
+
+**Шпаргалка:**
+
+> `key` — уникальный идентификатор для каждого элемента списка в React. Он нужен, чтобы React **правильно сопоставлял элементы между рендерами** и минимизировал количество операций с DOM.
+
+---
+
+#### Как работает
+
+* React использует `key` для **сопоставления старых и новых элементов** списка при diffing.
+* Без уникального ключа React может перепутать элементы, что ведёт к:
+
+  * неправильному сохранению состояния input/checkbox внутри списка
+  * лишним перерендерингам или удалению элементов
+* `key` не должен быть индексом массива при динамических изменениях (add/remove), иначе сопоставление ломается.
+
+---
+
+#### Пример
+
+```jsx
+// Плохо: index как key
+{items.map((item, index) => (
+  <Item key={index} value={item} />
+))}
+
+// Хорошо: уникальный id
+{items.map(item => (
+  <Item key={item.id} value={item} />
+))}
+```
+
+*Используем стабильные и уникальные ключи (id, uuid), а не индекс, если элементы могут добавляться или удаляться.*
+
+---
+
+#### Нюансы и выжимка для собеса
+
+* мемоизация = инструмент оптимизации, а не правило по умолчанию
+* использовать только для:
+
+  * дорогих вычислений (useMemo)
+  * стабильных ссылок для React.memo дочерних компонентов (useCallback)
+* лёгкие вычисления, редкие ререндеры → мемоизация лишняя
+* злоупотребление усложняет код и иногда снижает производительность
+
+### Как с помощью React DevTools Profiler базово проверить “тяжёлые” компоненты
+
+**Шпаргалка:**
+
+> React DevTools Profiler позволяет измерять время рендера компонентов и визуально выявлять узкие места в производительности.
+
+---
+
+#### Шаги базовой проверки
+
+1. **Открыть Profiler**
+
+   * В DevTools → вкладка **Profiler** (в React DevTools).
+
+2. **Запустить запись**
+
+   * Нажать **Start profiling** или кнопку записи.
+   * Выполнить действия в приложении, которые вы хотите проанализировать (например, ввод в форму, переключение страницы).
+
+3. **Остановить запись**
+
+   * Нажать **Stop profiling**.
+   * Появится дерево компонентов с визуализацией времени рендера.
+
+4. **Проанализировать результаты**
+
+   * Цветовая шкала показывает, сколько времени тратит каждый компонент (чем темнее/краснее, тем дольше).
+   * Можно смотреть **"Flamegraph"** — компоненты с наибольшим временем отображаются шире.
+   * Можно фильтровать по **Actual render time** и **Self render time**.
+
+5. **Выявить узкие места**
+
+   * Компоненты с долгим рендером — кандидаты на оптимизацию:
+
+     * мемоизация через `React.memo`
+     * useMemo / useCallback для вычислений и обработчиков
+     * разбиение на более мелкие компоненты
+
+---
+
+#### Пример базового использования
+
+*Окно Profiler после записи:*
+
+```
+App
+ ├─ Header (2ms)
+ ├─ TodoList (18ms)
+ │   ├─ TodoItem (5ms)
+ │   ├─ TodoItem (7ms)
+ └─ Footer (1ms)
+```
+
+* Видно, что TodoList + TodoItem съедают больше всего времени → место для оптимизации.
+
+---
+
+#### Нюансы и выжимка для собеса
+
+* DevTools Profiler показывает **реальное время рендера**, а не только обновления state.
+* Сначала профилируем → потом оптимизируем.
+* Оптимизации: React.memo, useMemo, useCallback, разбиение на мелкие компоненты.
+* Понимание, какие компоненты “дорогие”, помогает принимать решения без преждевременной мемоизации.
+
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
+###
